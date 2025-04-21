@@ -36,3 +36,4 @@ Thumbs.db
 store/disks.json
 store/images.json
 store/containers.json
+venv/
