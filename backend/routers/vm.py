@@ -12,6 +12,9 @@ class CreateDiskRequest(BaseModel):
     size: str       # Size in format like "10G", "500M"
     format: str     # Disk format: "qcow2" or "raw"
 
+class DiskInfoRequest(BaseModel):  # Request model for disk info
+    name: str  # e.g., "ubuntu_disk.qcow2"
+
 @router.post("/create-disk")
 def create_disk(req: CreateDiskRequest):
     """
@@ -75,3 +78,38 @@ def create_disk(req: CreateDiskRequest):
     except Exception as e:
         print("💥 Unexpected error:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/disk-info")
+def disk_info(req: DiskInfoRequest):
+    # ensure qemu-img is available (or fallback)
+    exe = shutil.which("qemu-img")
+    if exe is None:
+        default_win = r"C:\Program Files\qemu\qemu-img.exe"
+        if os.path.exists(default_win):
+            exe = default_win
+        else:
+            raise HTTPException(status_code=500, detail="qemu-img not found. Install QEMU or adjust PATH.")
+    # resolve disk path
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+    store_dir = os.path.join(base_dir, "store")
+    disk_path = os.path.join(store_dir, req.name)
+    # check existence
+    if not os.path.exists(disk_path):
+        raise HTTPException(status_code=404, detail=f"Disk '{req.name}' not found in store.")
+    # prepare command
+    command = [exe, "info", disk_path]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True)
+        # debug logs
+        print("✅ stdout:", result.stdout)
+        print("❌ stderr:", result.stderr)
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr)
+        return {
+            "message": "Disk info retrieved successfully ✅",
+            "disk": req.name,
+            "info": result.stdout
+        }
+    except Exception as e:
+        # catch any errors
+        raise HTTPException(status_code=500, detail=f"💥 {str(e)}")
