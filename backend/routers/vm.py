@@ -15,6 +15,12 @@ class CreateDiskRequest(BaseModel):
 class DiskInfoRequest(BaseModel):  # Request model for disk info
     name: str  # e.g., "ubuntu_disk.qcow2"
 
+class ConvertDiskRequest(BaseModel):  # Request model for disk conversion
+    source_name: str       # e.g., "ubuntu_disk.qcow2"
+    source_format: str     # e.g., qcow2
+    target_format: str     # e.g., raw
+    target_name: str       # e.g., "ubuntu_disk.raw"
+
 @router.post("/create-disk")
 def create_disk(req: CreateDiskRequest):
     """
@@ -112,4 +118,52 @@ def disk_info(req: DiskInfoRequest):
         }
     except Exception as e:
         # catch any errors
+        raise HTTPException(status_code=500, detail=f"💥 {str(e)}")
+
+@router.post("/convert-disk")
+def convert_disk(req: ConvertDiskRequest):
+    """
+    Converts a disk image from one format to another using qemu-img.
+    """
+    # Locate qemu-img executable (or fallback to Windows path)
+    exe = shutil.which("qemu-img")
+    if exe is None:
+        default_path = r"C:\Program Files\qemu\qemu-img.exe"
+        if os.path.exists(default_path):
+            exe = default_path
+        else:
+            raise HTTPException(status_code=500, detail="❌ qemu-img not found. Install QEMU or adjust PATH.")
+
+    # Resolve input and output file paths
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+    store_dir = os.path.join(base_dir, "store")
+    input_path = os.path.join(store_dir, req.source_name)
+    if not os.path.exists(input_path):
+        raise HTTPException(status_code=404, detail=f"Source disk '{req.source_name}' not found.")
+    output_path = os.path.join(store_dir, req.target_name)
+
+    # Build qemu-img convert command
+    command = [
+        exe, "convert",
+        "-f", req.source_format,
+        "-O", req.target_format,
+        input_path,
+        output_path
+    ]
+
+    try:
+        result = subprocess.run(command, capture_output=True, text=True)
+        # Log output for debugging
+        print("✅ stdout:", result.stdout)
+        print("❌ stderr:", result.stderr)
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr)
+        return {
+            "message": "✅ Disk converted successfully!",
+            "source": req.source_name,
+            "target": req.target_name,
+            "info": result.stdout
+        }
+    except Exception as e:
+        # Handle conversion errors
         raise HTTPException(status_code=500, detail=f"💥 {str(e)}")
