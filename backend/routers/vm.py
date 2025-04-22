@@ -21,6 +21,10 @@ class ConvertDiskRequest(BaseModel):  # Request model for disk conversion
     target_format: str     # e.g., raw
     target_name: str       # e.g., "ubuntu_disk.raw"
 
+class ResizeDiskRequest(BaseModel):  # Request model for resizing disks
+    name: str       # Disk filename e.g., "ubuntu_disk.qcow2"
+    resize_by: str  # Amount to increase size e.g., "+5G"
+
 @router.post("/create-disk")
 def create_disk(req: CreateDiskRequest):
     """
@@ -166,4 +170,43 @@ def convert_disk(req: ConvertDiskRequest):
         }
     except Exception as e:
         # Handle conversion errors
+        raise HTTPException(status_code=500, detail=f"💥 {str(e)}")
+
+@router.post("/resize-disk")
+def resize_disk(req: ResizeDiskRequest):
+    """
+    Increase the size of an existing disk image using qemu-img resize.
+    """
+    # Locate qemu-img executable
+    exe = shutil.which("qemu-img")
+    if exe is None:
+        default_win = r"C:\Program Files\qemu\qemu-img.exe"
+        if os.path.exists(default_win):
+            exe = default_win
+        else:
+            raise HTTPException(status_code=500, detail="❌ qemu-img not found. Install QEMU or adjust PATH.")
+
+    # Resolve disk path in store
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+    store_dir = os.path.join(base_dir, "store")
+    disk_path = os.path.join(store_dir, req.name)
+    if not os.path.exists(disk_path):
+        raise HTTPException(status_code=404, detail=f"Disk '{req.name}' not found in store.")
+
+    # Build qemu-img resize command
+    command = [exe, "resize", disk_path, req.resize_by]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True)
+        # Debug logs
+        print("✅ stdout:", result.stdout)
+        print("❌ stderr:", result.stderr)
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr)
+        return {
+            "message": "✅ Disk resized successfully!",
+            "disk": req.name,
+            "resize_by": req.resize_by,
+            "info": result.stdout
+        }
+    except Exception as e:
         raise HTTPException(status_code=500, detail=f"💥 {str(e)}")
