@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from routers import vm
+from routers import auth  # add auth router import
 from database import db  # import Mongo client database
 
 app = FastAPI(
@@ -10,6 +11,7 @@ app = FastAPI(
 
 # Register the VM router
 app.include_router(vm.router, prefix="/vm", tags=["Virtual Machines"])
+app.include_router(auth.router, prefix="/auth", tags=["Authentication"])  # register auth endpoints
 
 @app.on_event("startup")
 async def check_mongo_connection():
