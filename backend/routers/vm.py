@@ -3,6 +3,7 @@ from pydantic import BaseModel
 import subprocess
 import shutil
 import os
+from typing import Optional
 
 router = APIRouter()
 
@@ -24,6 +25,13 @@ class ConvertDiskRequest(BaseModel):  # Request model for disk conversion
 class ResizeDiskRequest(BaseModel):  # Request model for resizing disks
     name: str       # Disk filename e.g., "ubuntu_disk.qcow2"
     resize_by: str  # Amount to increase size e.g., "+5G"
+
+class CreateVMRequest(BaseModel):  # Request model for creating a VM
+    disk_name: str          # name of a disk file in store (e.g., "ubuntu_disk.qcow2")
+    iso_path: Optional[str] = None  # optional path to an ISO file
+    memory_mb: int          # RAM in MB
+    cpu_count: int          # number of CPUs
+    display: Optional[str] = "sdl"  # display type
 
 @router.post("/create-disk")
 def create_disk(req: CreateDiskRequest):
@@ -207,6 +215,52 @@ def resize_disk(req: ResizeDiskRequest):
             "disk": req.name,
             "resize_by": req.resize_by,
             "info": result.stdout
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"💥 {str(e)}")
+
+@router.post("/create-vm")
+def create_vm(req: CreateVMRequest):
+    """
+    Launch a QEMU x86_64 VM using specified disk, ISO, memory, CPU, and display.
+    """
+    # Locate qemu-system binary
+    exe = shutil.which("qemu-system-x86_64")
+    if exe is None:
+        default_path = r"C:\Program Files\qemu\qemu-system-x86_64.exe"
+        if os.path.exists(default_path):
+            exe = default_path
+        else:
+            raise HTTPException(status_code=500, detail="❌ qemu-system-x86_64 not found. Install QEMU or adjust PATH.")
+
+    # Resolve disk path
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+    store_dir = os.path.join(base_dir, "store")
+    disk_path = os.path.join(store_dir, req.disk_name)
+    if not os.path.exists(disk_path):
+        raise HTTPException(status_code=404, detail=f"Disk '{req.disk_name}' not found in store.")
+
+    # Build command args
+    cmd = [
+        exe,
+        "-drive", f"file={disk_path},format={'qcow2' if req.disk_name.endswith('.qcow2') else 'raw'}",
+        "-m", str(req.memory_mb),
+        "-smp", str(req.cpu_count),
+        "-display", req.display
+    ]
+    # Add ISO boot if provided
+    if req.iso_path:
+        if not os.path.exists(req.iso_path):
+            raise HTTPException(status_code=404, detail=f"ISO '{req.iso_path}' not found.")
+        cmd += ["-cdrom", req.iso_path, "-boot", "d"]
+
+    try:
+        # Launch VM process in background
+        process = subprocess.Popen(cmd)
+        print("✅ VM launched with PID", process.pid)
+        return {
+            "message": "✅ VM launched successfully",
+            "pid": process.pid
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"💥 {str(e)}")
