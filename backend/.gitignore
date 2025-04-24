@@ -36,4 +36,7 @@ Thumbs.db
 store/disks.json
 store/images.json
 store/containers.json
-venv/
+
+# Ignore VM disk images
+store/*.qcow2
+store/*.raw
