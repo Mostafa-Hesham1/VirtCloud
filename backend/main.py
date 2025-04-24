@@ -1,6 +1,8 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from routers import vm
 from routers import auth  # add auth router import
+from routers import billing  # add billing router import
 from database import db  # import Mongo client database
 
 app = FastAPI(
@@ -9,9 +11,20 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Register the VM router
+# Improved CORS configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
+
+# Register the routers
 app.include_router(vm.router, prefix="/vm", tags=["Virtual Machines"])
-app.include_router(auth.router, prefix="/auth", tags=["Authentication"])  # register auth endpoints
+app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
+app.include_router(billing.router, prefix="/billing", tags=["Billing & Plans"])
 
 @app.on_event("startup")
 async def check_mongo_connection():
