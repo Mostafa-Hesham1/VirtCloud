@@ -11,7 +11,7 @@ load_dotenv()
 # Settings
 SECRET_KEY: str = os.getenv("SECRET_KEY", "supersecretkey")
 ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "90"))
 
 
 def get_password_hash(password: str) -> str:

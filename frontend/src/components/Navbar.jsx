@@ -7,7 +7,8 @@ import { Link, useNavigate } from 'react-router-dom';
 const navLinks = [
   { title: 'Home', path: '/' },
   { title: 'Dashboard', path: '/dashboard' },
-  { title: 'Plans', path: '/plans' }
+  { title: 'Plans', path: '/plans' },
+  { title: 'Create VM', path: '/create-vm' }
 ];
 
 const Navbar = () => {

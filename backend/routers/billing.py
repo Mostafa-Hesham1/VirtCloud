@@ -124,7 +124,9 @@ async def get_user_plan(user=Depends(get_current_user)):
         if plan["id"] == plan_id:
             return {
                 "plan": plan,
-                "credit_balance": credit_balance
+                "credits": credit_balance,
+                "credit_balance": credit_balance,  # alias for legacy clients
+                "monthly_credits": plan["credits_monthly"]
             }
     
     # If plan not found, return free plan

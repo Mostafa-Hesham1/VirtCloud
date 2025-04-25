@@ -1,137 +1,84 @@
-import React, { useState } from 'react';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import CircularProgress from '@mui/material/CircularProgress';
-import CssBaseline from '@mui/material/CssBaseline';
-import TextField from '@mui/material/TextField';
-import Typography from '@mui/material/Typography';
-import Divider from '@mui/material/Divider';
-import Stack from '@mui/material/Stack';
-import MuiCard from '@mui/material/Card';
-import { styled } from '@mui/material/styles';
-import InputAdornment from '@mui/material/InputAdornment';
-import EmailIcon from '@mui/icons-material/Email';
-import LockIcon from '@mui/icons-material/Lock';
-import Link from '@mui/material/Link';
-import IconButton from '@mui/material/IconButton';
-import VisibilityIcon from '@mui/icons-material/Visibility';
-import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
-import FormControlLabel from '@mui/material/FormControlLabel';
-import Checkbox from '@mui/material/Checkbox';
-import Snackbar from '@mui/material/Snackbar';
-import Alert from '@mui/material/Alert';
-import { Link as RouterLink, useNavigate } from 'react-router-dom';
-import { loginUser } from '../api/auth';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { 
+  Container, Typography, TextField, Button, Paper, 
+  Box, Alert, CircularProgress, Link as MuiLink 
+} from '@mui/material';
+import { Link } from 'react-router-dom';
+import { useUser } from '../context/UserContext';
 
-// Styled components
-const Card = styled(MuiCard)(({ theme }) => ({
-  display: 'flex',
-  flexDirection: 'column',
-  padding: theme.spacing(5),
-  gap: theme.spacing(2),
-  width: '100%',
-  maxWidth: '600px',
-  margin: 'auto',
-  borderRadius: '16px',
-  boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
-  background: 'rgba(255,255,255,0.9)',
-  position: 'relative',
-  overflow: 'hidden',
-  [theme.breakpoints.down('sm')]: {
-    padding: theme.spacing(4, 3),
-  },
-  '&::before': {
-    content: '""',
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '4px',
-    background: 'linear-gradient(90deg, #1565c0, #42a5f5)',
-  }
-}));
-
-const Container = styled(Stack)(({ theme }) => ({
-  minHeight: '100vh',
-  padding: theme.spacing(4),
-  justifyContent: 'center',
-  alignItems: 'center',
-  background: 'linear-gradient(45deg, #f5f8ff 30%, #e8f5fe 90%)',
-}));
-
-const StyledTextField = styled(TextField)(({ theme }) => ({
-  '& .MuiOutlinedInput-root': {
-    borderRadius: '8px',
-    backgroundColor: 'rgba(255,255,255,0.7)',
-    transition: '0.3s',
-    '&:hover': { backgroundColor: 'rgba(255,255,255,0.9)' },
-    '&.Mui-focused': { backgroundColor: '#fff', boxShadow: '0 0 0 2px rgba(63,81,181,0.2)' }
-  }
-}));
-
-const StyledButton = styled(Button)(({ theme }) => ({
-  borderRadius: '8px',
-  padding: '12px 16px',
-  fontWeight: 600,
-  textTransform: 'none',
-  fontSize: '1.1rem',
-  background: 'linear-gradient(45deg, #1976d2, #42a5f5)',
-  '&:hover': { background: 'linear-gradient(45deg,#1565c0,#1976d2)' }
-}));
-
-const StyledDivider = styled(Divider)(({ theme }) => ({ 
-  margin: theme.spacing(3, 0),
-  '&::before, &::after': {
-    borderColor: 'rgba(0, 0, 0, 0.1)',
-  }
-}));
-
-export default function LoginPage() {
-  const [showPassword, setShowPassword] = useState(false);
+const LoginPage = () => {
+  const navigate = useNavigate();
+  const { user, login, loading } = useUser();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
-  const navigate = useNavigate();
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleTogglePassword = () => {
-    setShowPassword(!showPassword);
-  };
+  // If already authenticated or when authentication completes, redirect to dashboard
+  useEffect(() => {
+    console.log("LoginPage auth check:", { isAuthenticated: user.isAuthenticated, loading });
+    
+    // Only redirect if authentication check is complete AND user is authenticated
+    if (user.isAuthenticated && !loading) {
+      console.log("User is authenticated, redirecting to dashboard");
+      // Add a small delay before redirecting to ensure success message is seen
+      if (success) {
+        const timer = setTimeout(() => {
+          navigate('/dashboard', { replace: true });
+        }, 1500); // 1.5 second delay
+        return () => clearTimeout(timer);
+      } else {
+        navigate('/dashboard', { replace: true });
+      }
+    }
+  }, [user.isAuthenticated, loading, navigate, success]);
 
-  const handleSubmit = async(event) => {
-    event.preventDefault();
-    setLoading(true);
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    setIsSubmitting(true);
+    
     try {
-      const data = await loginUser({ email, password });
-      localStorage.setItem('token', data.access_token || data.token);
-      setSnackbar({ open: true, message: '✅ Login successful', severity: 'success' });
-      setTimeout(() => navigate('/dashboard'), 1000);
+      const result = await login(email, password);
+      if (result.success) {
+        // Login successful - show success message more prominently
+        setSuccess("Login successful! Redirecting to dashboard...");
+        // The useEffect will handle redirection after a short delay
+      } else {
+        setError(result.message || 'Login failed. Please check your credentials.');
+      }
     } catch (err) {
-      setSnackbar({ open: true, message: `❌ ${err.message}`, severity: 'error' });
+      setError('An unexpected error occurred. Please try again.');
+      console.error('Login error:', err);
     } finally {
-      setLoading(false);
+      setIsSubmitting(false);
     }
   };
-  const handleCloseSnackbar = () => setSnackbar({ ...snackbar, open: false });
 
   return (
-    <Container>
-      <Card>
-        <Box sx={{ textAlign: 'center', mb: 2 }}>
-          <Box sx={{ mb: 2, display: 'flex', justifyContent: 'center' }}>
-            <img src="/Logo.png" alt="VirtCloud" height="90" />
+    <Container
+      maxWidth="sm"
+      sx={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: '80vh',
+        py: 8  // add vertical padding
+      }}
+    >
+      <Paper elevation={3} sx={{ width: '100%', p: 4, borderRadius: 2 }}>
+        <Box sx={{ textAlign: 'center', mb: 4 }}>
+          <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center' }}>
+            <img src="/logo.png" alt="VirtCloud" height="70" />
           </Box>
           <Typography 
             variant="h4" 
             component="h1" 
             gutterBottom 
-            sx={{ 
-              fontWeight: 700,
-              background: 'linear-gradient(45deg, #1565c0, #42a5f5)',
-              backgroundClip: 'text',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-            }}
+            sx={{ fontWeight: 600 }}
           >
             Welcome Back
           </Typography>
@@ -144,107 +91,104 @@ export default function LoginPage() {
           component="form"
           onSubmit={handleSubmit}
           noValidate 
-          sx={{ display:'flex', flexDirection:'column', gap:3, mt:2 }}
+          sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 3 }}
         >
-          <StyledTextField
+          <TextField
             name="email"
             label="Email Address"
-            placeholder="you@example.com"
             type="email"
             fullWidth
             variant="outlined"
             required
             value={email}
             onChange={e => setEmail(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <EmailIcon color="primary" />
-                </InputAdornment>
-              )
-            }}
+            margin="normal"
+            sx={{ mb: 1 }}
           />
           
-          <StyledTextField
+          <TextField
             name="password"
             label="Password"
-            placeholder="••••••••"
-            type={showPassword ? 'text' : 'password'}
+            type="password"
             fullWidth
             variant="outlined"
             required
             value={password}
             onChange={e => setPassword(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <LockIcon color="primary" />
-                </InputAdornment>
-              ),
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton
-                    edge="end"
-                    onClick={handleTogglePassword}
-                    aria-label="toggle password visibility"
-                  >
-                    {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
-                  </IconButton>
-                </InputAdornment>
-              )
-            }}
+            margin="normal"
+            sx={{ mb: 1 }}
           />
           
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <FormControlLabel
-              control={<Checkbox color="primary" />}
-              label={<Typography variant="body2">Remember me</Typography>}
-            />
-            <Link 
-              component={RouterLink} 
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+            <MuiLink 
+              component={Link} 
               to="/forgot-password" 
               variant="body2"
-              sx={{ color: 'primary.main', fontWeight: 500 }}
+              sx={{ color: 'primary.main' }}
             >
               Forgot password?
-            </Link>
+            </MuiLink>
           </Box>
           
-          <StyledButton type="submit" fullWidth variant="contained" disabled={loading}>
-            {loading ? <CircularProgress size={24} color="inherit" /> : 'Sign In'}
-          </StyledButton>
+          <Button 
+            type="submit" 
+            fullWidth 
+            variant="contained" 
+            disabled={isSubmitting} 
+            sx={{ 
+              py: 1.5,
+              mt: 1,
+              mb: 2,
+              fontWeight: 600
+            }}
+          >
+            {isSubmitting ? <CircularProgress size={24} color="inherit" /> : 'Sign In'}
+          </Button>
+          
+          {/* Make the success message more prominent */}
+          {success && (
+            <Alert 
+              severity="success" 
+              sx={{ 
+                mt: 2, 
+                fontSize: '1rem',
+                fontWeight: 500,
+                display: 'flex',
+                alignItems: 'center',
+                '& .MuiAlert-icon': {
+                  fontSize: '1.5rem'
+                }
+              }}
+            >
+              {success}
+            </Alert>
+          )}
+          
+          {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
         </Box>
-        <Snackbar
-          open={snackbar.open}
-          autoHideDuration={4000}
-          onClose={handleCloseSnackbar}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-        >
-          <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
-            {snackbar.message}
-          </Alert>
-        </Snackbar>
-        <StyledDivider>or sign in with</StyledDivider>
-        
-        <Box sx={{ textAlign:'center', mt: 1 }}>
-          <Typography variant="body2" sx={{ mt: 2 }}>
+
+        <Box sx={{ textAlign: 'center', mt: 3 }}>
+          <Typography variant="body2">
             Don't have an account?{' '}
-            <Link 
-              component={RouterLink} 
-              to="/signup" 
+            <MuiLink 
+              component={Link} 
+              to="/signup"
               sx={{ 
                 color: 'primary.main', 
-                fontWeight: 600,
+                fontWeight: 500,
+                textDecoration: 'none',
                 '&:hover': {
                   textDecoration: 'underline'
                 }
               }}
             >
               Sign up now
-            </Link>
+            </MuiLink>
           </Typography>
         </Box>
-      </Card>
+      </Paper>
     </Container>
   );
-}
+};
+
+export default LoginPage;

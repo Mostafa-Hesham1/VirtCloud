@@ -1,0 +1,370 @@
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
+import subprocess
+import shutil
+import os
+from typing import Optional
+from database import db
+from .auth import get_current_user
+from datetime import datetime
+from bson.objectid import ObjectId
+
+router = APIRouter()
+
+class CreateVMRequest(BaseModel):  # Request model for creating a VM
+    disk_name: str          # name of a disk file in store (e.g., "ubuntu_disk.qcow2")
+    iso_path: Optional[str] = None  # optional path to an ISO file
+    memory_mb: int          # RAM in MB
+    cpu_count: int          # number of CPUs
+    display: Optional[str] = "sdl"  # display type
+
+class VMActionRequest(BaseModel):
+    vm_id: str  # MongoDB ID for the VM
+    include_iso: bool = False  # Optional parameter to include ISO or not
+
+class UpdateVMResourcesRequest(BaseModel):
+    vm_id: str            # MongoDB ID for the VM
+    cpu_count: int        # New CPU count
+    memory_mb: int        # New memory in MB
+
+class DeductCreditsRequest(BaseModel):
+    vm_id: str       # ID of the VM
+    amount: float    # credits to deduct
+
+@router.post("/create")
+async def create_vm(req: CreateVMRequest, user=Depends(get_current_user)):
+    """
+    Launch a QEMU x86_64 VM using specified disk, ISO, memory, CPU, and display.
+    """
+    # Locate qemu-system binary
+    exe = shutil.which("qemu-system-x86_64")
+    if exe is None:
+        default_path = r"C:\Program Files\qemu\qemu-system-x86_64.exe"
+        if os.path.exists(default_path):
+            exe = default_path
+        else:
+            raise HTTPException(status_code=500, detail="❌ qemu-system-x86_64 not found. Install QEMU or adjust PATH.")
+
+    # Resolve disk path
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+    store_dir = os.path.join(base_dir, "store")
+    disk_path = os.path.join(store_dir, req.disk_name)
+    if not os.path.exists(disk_path):
+        raise HTTPException(status_code=404, detail=f"Disk '{req.disk_name}' not found in store.")
+
+    # Build command args
+    cmd = [
+        exe,
+        "-drive", f"file={disk_path},format={'qcow2' if req.disk_name.endswith('.qcow2') else 'raw'}",
+        "-m", str(req.memory_mb),
+        "-smp", str(req.cpu_count),
+        "-display", req.display
+    ]
+    # Add ISO boot if provided
+    if req.iso_path:
+        if not os.path.exists(req.iso_path):
+            raise HTTPException(status_code=404, detail=f"ISO '{req.iso_path}' not found.")
+        cmd += ["-cdrom", req.iso_path, "-boot", "d"]
+
+    try:
+        # Launch VM process in background
+        process = subprocess.Popen(cmd)
+        # Record VM in database for this user
+        await db.vms.insert_one({
+            "user_email": user["email"],
+            "disk_name": req.disk_name,
+            "iso_path": req.iso_path,
+            "memory_mb": req.memory_mb,
+            "cpu_count": req.cpu_count,
+            "display": req.display,
+            "pid": process.pid,
+            "status": "running",
+            "started_at": datetime.utcnow(),
+            "created_at": datetime.utcnow()
+        })
+        print("✅ VM launched with PID", process.pid)
+        return {
+            "message": "✅ VM launched successfully",
+            "pid": process.pid
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"💥 {str(e)}")
+
+@router.post("/stop")
+async def stop_vm(req: VMActionRequest, user=Depends(get_current_user)):
+    """
+    Stop a running VM
+    """
+    try:
+        # Verify VM exists and belongs to user
+        vm = await db.vms.find_one({"_id": ObjectId(req.vm_id), "user_email": user["email"]})
+        if not vm:
+            raise HTTPException(status_code=404, detail="VM not found or doesn't belong to you")
+
+        # Check if already stopped
+        if vm.get("status") == "stopped":
+            return {"message": "VM is already stopped"}
+
+        # Get PID
+        pid = vm.get("pid")
+        if not pid:
+            raise HTTPException(status_code=400, detail="VM has no associated process ID")
+
+        try:
+            # On Windows, use taskkill
+            if os.name == 'nt':
+                subprocess.run(["taskkill", "/F", "/PID", str(pid)], check=True)
+            # On Unix-like, use kill
+            else:
+                import signal
+                os.kill(pid, signal.SIGTERM)
+                
+            # Allow time for graceful shutdown
+            import time
+            time.sleep(1)
+            
+            # Get the stop time and calculate runtime
+            stop_time = datetime.utcnow()
+            runtime_minutes = 0
+            
+            # Calculate runtime if we have a start time
+            if vm.get("started_at"):
+                start_time = vm["started_at"]
+                runtime_seconds = (stop_time - start_time).total_seconds()
+                runtime_minutes = runtime_seconds / 60
+                
+                # Compute costs for this session based on VM resources
+                # Use the same constants as frontend for consistency
+                BASE_COST = 0.5
+                CPU_COST = 0.2
+                RAM_COST = 0.1
+                
+                hourly_rate = BASE_COST + (vm["cpu_count"] * CPU_COST) + ((vm["memory_mb"] / 1024) * RAM_COST)
+                session_cost = hourly_rate * (runtime_minutes / 60)
+                
+                # Round to 2 decimal places
+                session_cost = round(session_cost, 2)
+                
+                # Only deduct credits for pay-as-you-go users
+                user_info = await db.users.find_one({"email": user["email"]})
+                if user_info and user_info.get("plan") == "payg":
+                    # Deduct credits if user has enough
+                    remaining_credits = user_info.get("credits", 0) - session_cost
+                    
+                    # Update user credits
+                    await db.users.update_one(
+                        {"email": user["email"]},
+                        {"$set": {"credits": max(0, remaining_credits)}}
+                    )
+                    
+                    # Create a billing record
+                    await db.billing.insert_one({
+                        "user_email": user["email"],
+                        "vm_id": str(vm["_id"]),
+                        "disk_name": vm["disk_name"],
+                        "action": "vm_usage",
+                        "cost": session_cost,
+                        "runtime_minutes": runtime_minutes,
+                        "timestamp": stop_time,
+                        "details": {
+                            "cpu": vm["cpu_count"],
+                            "ram_gb": vm["memory_mb"] / 1024,
+                            "hourly_rate": hourly_rate
+                        }
+                    })
+                
+                # Update VM with runtime information
+                await db.vms.update_one(
+                    {"_id": ObjectId(req.vm_id)},
+                    {
+                        "$set": {
+                            "status": "stopped", 
+                            "stopped_at": stop_time
+                        },
+                        "$inc": {"total_runtime_minutes": runtime_minutes}
+                    }
+                )
+                
+                return {
+                    "message": "VM stopped successfully", 
+                    "status": "stopped",
+                    "runtime_minutes": runtime_minutes,
+                    "session_cost": session_cost if user_info and user_info.get("plan") == "payg" else 0
+                }
+            
+            # Update VM status in DB (fallback if no start time)
+            await db.vms.update_one(
+                {"_id": ObjectId(req.vm_id)},
+                {"$set": {"status": "stopped", "stopped_at": datetime.utcnow()}}
+            )
+            
+            return {"message": "VM stopped successfully", "status": "stopped"}
+            
+        except subprocess.CalledProcessError:
+            # Process likely no longer exists
+            await db.vms.update_one(
+                {"_id": ObjectId(req.vm_id)},
+                {"$set": {"status": "stopped", "stopped_at": datetime.utcnow()}}
+            )
+            return {"message": "VM process no longer running, status updated", "status": "stopped"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to stop VM: {str(e)}")
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing request: {str(e)}")
+
+@router.post("/start")
+async def start_vm(req: VMActionRequest, user=Depends(get_current_user)):
+    """
+    Start a previously stopped VM, with option to include ISO or not
+    """
+    try:
+        # Fetch VM from database
+        vm = await db.vms.find_one({"_id": ObjectId(req.vm_id), "user_email": user["email"]})
+        if not vm:
+            raise HTTPException(status_code=404, detail="VM not found or doesn't belong to you")
+            
+        # Check if already running
+        if vm.get("status") != "stopped":
+            return {"message": "VM is already running"}
+            
+        # Locate qemu-system binary
+        exe = shutil.which("qemu-system-x86_64")
+        if exe is None:
+            default_path = r"C:\Program Files\qemu\qemu-system-x86_64.exe"
+            if os.path.exists(default_path):
+                exe = default_path
+            else:
+                raise HTTPException(status_code=500, detail="qemu-system-x86_64 not found. Install QEMU or adjust PATH.")
+                
+        # Resolve disk path
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+        store_dir = os.path.join(base_dir, "store")
+        disk_path = os.path.join(store_dir, vm["disk_name"])
+        
+        if not os.path.exists(disk_path):
+            raise HTTPException(status_code=404, detail=f"Disk '{vm['disk_name']}' not found in store.")
+            
+        # Build command args
+        cmd = [
+            exe,
+            "-drive", f"file={disk_path},format={'qcow2' if vm['disk_name'].endswith('.qcow2') else 'raw'}",
+            "-m", str(vm["memory_mb"]),
+            "-smp", str(vm["cpu_count"]),
+            "-display", vm["display"]
+        ]
+        
+        # Add ISO if specified and user wants it included
+        if vm.get("iso_path") and req.include_iso:
+            if os.path.exists(vm["iso_path"]):
+                cmd += ["-cdrom", vm["iso_path"], "-boot", "d"]
+                print(f"Including ISO: {vm['iso_path']}")
+            else:
+                print(f"ISO file not found: {vm['iso_path']}")
+        else:
+            print("Starting VM without ISO")
+                
+        # Launch VM
+        process = subprocess.Popen(cmd)
+        
+        # Get the current time for runtime tracking
+        start_time = datetime.utcnow()
+        
+        # Update VM in database with start time
+        await db.vms.update_one(
+            {"_id": ObjectId(req.vm_id)},
+            {
+                "$set": {
+                    "status": "running",
+                    "pid": process.pid,
+                    "started_at": start_time,
+                    "restarted_at": start_time,
+                    "iso_included": req.include_iso
+                }
+            }
+        )
+        
+        return {
+            "message": "VM started successfully",
+            "status": "running",
+            "pid": process.pid,
+            "iso_included": req.include_iso
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start VM: {str(e)}")
+
+@router.post("/update-resources")
+async def update_vm_resources(req: UpdateVMResourcesRequest, user=Depends(get_current_user)):
+    """
+    Update the CPU and memory resources for a VM
+    """
+    try:
+        # Verify VM exists and belongs to user
+        vm = await db.vms.find_one({"_id": ObjectId(req.vm_id), "user_email": user["email"]})
+        if not vm:
+            raise HTTPException(status_code=404, detail="VM not found or doesn't belong to you")
+            
+        # Check if VM is running (we can't update resources of a running VM)
+        if vm.get("status") != "stopped":
+            raise HTTPException(status_code=400, detail="VM must be stopped before updating resources")
+        
+        # Update VM in database
+        await db.vms.update_one(
+            {"_id": ObjectId(req.vm_id)},
+            {
+                "$set": {
+                    "cpu_count": req.cpu_count,
+                    "memory_mb": req.memory_mb,
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
+        
+        return {
+            "message": "VM resources updated successfully",
+            "cpu_count": req.cpu_count,
+            "memory_mb": req.memory_mb
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update VM resources: {str(e)}")
+
+@router.post("/deduct-credits")
+async def deduct_credits(req: DeductCreditsRequest, user=Depends(get_current_user)):
+    """Deduct credits from user's balance for VM runtime"""
+    try:
+        # Decrement user's credit balance
+        result = await db.users.update_one(
+            {"email": user["email"]},
+            {"$inc": {"credits": -req.amount}}
+        )
+        if result.modified_count == 0:
+            raise HTTPException(status_code=400, detail="Failed to deduct credits")
+        # Record billing transaction
+        await db.billing.insert_one({
+            "user_email": user["email"],
+            "vm_id": req.vm_id,
+            "action": "runtime_charge",
+            "cost": req.amount,
+            "timestamp": datetime.utcnow(),
+            "details": {}
+        })
+        return {"status": "success", "deducted": req.amount}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Credit deduction error: {str(e)}")
+
+@router.get("/list")
+async def list_user_vms(user=Depends(get_current_user)):
+    """List all VMs created by the current user"""
+    try:
+        cursor = db.vms.find({"user_email": user["email"]})
+        vms = []
+        async for vm in cursor:
+            vm["id"] = str(vm.pop("_id"))
+            vms.append(vm)
+        return {"vms": vms}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to fetch VMs: " + str(e))

@@ -1,117 +1,162 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
+import axios from 'axios';
 
-export const UserContext = createContext();
+const UserContext = createContext();
 
 export const UserProvider = ({ children }) => {
   const [user, setUser] = useState({
     isAuthenticated: false,
+    email: '',
     username: '',
-    plan: 'free', // default plan
-    credits: 0,
+    plan: 'free',
+    credits: 100, // Default credits
   });
+  const [loading, setLoading] = useState(true);
 
+  // Check for existing token and validate on component mount
   useEffect(() => {
-    // Check if user is logged in
-    const token = localStorage.getItem('token');
-    if (token) {
+    const validateToken = async () => {
+      const token = localStorage.getItem('token');
+      console.log("Token check:", token ? "Token exists" : "No token found");
+      
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+      
       try {
-        // In a real app, you'd use a proper JWT decoding library
-        // This is a simple mock decoder for demonstration
-        const decodedToken = mockDecodeToken(token);
+        console.log("Validating token with backend...");
+        // Set up axios defaults to include token in all requests
+        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         
+        // Call the backend to verify the token and get user data
+        const response = await axios.get('http://localhost:8000/auth/me', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        console.log("User data received:", response.data);
+        
+        // If successful, update the user state
         setUser({
           isAuthenticated: true,
-          username: decodedToken.username || 'User',
-          plan: decodedToken.plan || 'free',
-          credits: decodedToken.credits || 0,
+          email: response.data.email,
+          username: response.data.username,
+          plan: response.data.plan || 'free',
+          credits: response.data.credits || 100
         });
+        console.log("Authentication successful, user state updated");
       } catch (error) {
-        console.error('Error decoding token:', error);
-        localStorage.removeItem('token'); // Invalid token
+        // If token validation fails, clear it
+        console.error("Token validation failed:", error);
+        localStorage.removeItem('token');
+        // Clear axios default headers
+        delete axios.defaults.headers.common['Authorization'];
+      } finally {
+        setLoading(false);
       }
-    }
+    };
+    
+    validateToken();
+    
+    // Set up axios interceptor to handle 401 errors
+    const interceptor = axios.interceptors.response.use(
+      response => response,
+      error => {
+        if (error.response && error.response.status === 401) {
+          console.log("401 Unauthorized response detected");
+          // Clear localStorage and reset user state on auth failures
+          localStorage.removeItem('token');
+          setUser({
+            isAuthenticated: false,
+            email: '',
+            username: '',
+            plan: 'free',
+            credits: 0
+          });
+        }
+        return Promise.reject(error);
+      }
+    );
+    
+    // Clean up interceptor on unmount
+    return () => axios.interceptors.response.eject(interceptor);
   }, []);
 
-  // Mock function to simulate JWT decoding
-  const mockDecodeToken = (token) => {
-    // In a real app, you would use jwt-decode or similar
-    // For demo purposes, we'll check if token exists and return mock data
-    if (token) {
-      // Return mock data or try to parse if it's a JSON string
-      try {
-        return JSON.parse(atob(token.split('.')[1]));
-      } catch {
-        // If not a valid JWT, return default values
-        return {
-          username: 'DemoUser',
-          plan: 'free',
-          credits: 50
-        };
-      }
-    }
-    return {};
-  };
-
-  const updateUserPlan = (newPlan) => {
-    setUser(prev => ({ ...prev, plan: newPlan }));
-    
-    // In a real app, you would call an API to update the user's plan
-    // For now, we'll update the mock token
-    const token = localStorage.getItem('token');
-    if (token) {
-      try {
-        const decodedToken = mockDecodeToken(token);
-        decodedToken.plan = newPlan;
-        
-        // Create a new mock token
-        const updatedToken = createMockToken(decodedToken);
-        localStorage.setItem('token', updatedToken);
-      } catch (error) {
-        console.error('Error updating token:', error);
-      }
-    }
-  };
-
-  const addCredits = (amount) => {
-    const newCredits = user.credits + amount;
-    setUser(prev => ({ ...prev, credits: newCredits }));
-    
-    // Update mock token with new credits
-    const token = localStorage.getItem('token');
-    if (token) {
-      try {
-        const decodedToken = mockDecodeToken(token);
-        decodedToken.credits = newCredits;
-        
-        // Create a new mock token
-        const updatedToken = createMockToken(decodedToken);
-        localStorage.setItem('token', updatedToken);
-      } catch (error) {
-        console.error('Error updating token:', error);
-      }
+  // Login function
+  const login = async (email, password) => {
+    try {
+      console.log("Attempting login for:", email);
+      const response = await axios.post('http://localhost:8000/auth/login', {
+        email,
+        password
+      });
+      
+      // Store token in localStorage
+      const token = response.data.access_token;
+      localStorage.setItem('token', token);
+      console.log("Token stored in localStorage");
+      
+      // Set default Authorization header for all future requests
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      
+      // Fetch user details
+      const userResponse = await axios.get('http://localhost:8000/auth/me', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      console.log("User data received after login:", userResponse.data);
+      
+      // Update user context
+      setUser({
+        isAuthenticated: true,
+        email: userResponse.data.email,
+        username: userResponse.data.username,
+        plan: userResponse.data.plan || 'free',
+        credits: userResponse.data.credits || 100
+      });
+      
+      console.log("User state updated, authentication complete");
+      
+      return { success: true };
+    } catch (error) {
+      console.error("Login error:", error);
+      return { 
+        success: false, 
+        message: error.response?.data?.detail || "Login failed" 
+      };
     }
   };
 
-  // Helper to create a mock token
-  const createMockToken = (payload) => {
-    // This is a simplified mock, not an actual JWT
-    const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-    const encodedPayload = btoa(JSON.stringify(payload));
-    const signature = btoa('mocksignature');
-    return `${header}.${encodedPayload}.${signature}`;
+  // Logout function
+  const logout = () => {
+    console.log("Logging out user");
+    localStorage.removeItem('token');
+    // Clear axios default headers
+    delete axios.defaults.headers.common['Authorization'];
+    setUser({
+      isAuthenticated: false,
+      email: '',
+      username: '',
+      plan: 'free',
+      credits: 0
+    });
+    console.log("User logged out successfully");
   };
+
+  // For debugging
+  useEffect(() => {
+    console.log("UserContext state updated:", {
+      isAuthenticated: user.isAuthenticated,
+      email: user.email,
+      loading
+    });
+  }, [user, loading]);
 
   return (
-    <UserContext.Provider value={{ user, updateUserPlan, addCredits }}>
+    <UserContext.Provider value={{ user, login, logout, loading }}>
       {children}
     </UserContext.Provider>
   );
 };
 
-export const useUser = () => {
-  const context = useContext(UserContext);
-  if (!context) {
-    throw new Error('useUser must be used within a UserProvider');
-  }
-  return context;
-};
+export const useUser = () => useContext(UserContext);

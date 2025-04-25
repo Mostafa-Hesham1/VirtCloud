@@ -56,7 +56,7 @@ const PlansPage = () => {
         });
         
         setCurrentPlan(userPlanResponse.data.plan.id);
-        setCreditBalance(userPlanResponse.data.credit_balance);
+        setCreditBalance(userPlanResponse.data.credits);
       } catch (error) {
         console.error('Error fetching plan data:', error);
         

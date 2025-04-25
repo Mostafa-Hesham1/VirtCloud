@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, EmailStr, Field
-from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 from database import db
 from utils.auth_tools import get_password_hash, verify_password, create_access_token, decode_access_token
+from datetime import datetime
 
 router = APIRouter()
 
@@ -28,6 +28,7 @@ class UserResponse(BaseModel):
     email: EmailStr
     username: str
     plan: str
+    credits: float  # allow fractional credit balances
 
 # Dependency to get current user from JWT token
 async def get_current_user(token: str = Depends(oauth2_scheme)):
@@ -38,15 +39,21 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
     except Exception:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
-    user = await db.users.find_one({"email": email})
+    try:
+        user = await db.users.find_one({"email": email})
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database unavailable")
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-    return {"email": user["email"], "username": user["username"], "plan": user["plan"]}
+    return {"email": user["email"], "username": user["username"], "plan": user["plan"], "credits": user.get("credits", 0)}
 
 @router.post("/signup", status_code=status.HTTP_201_CREATED)
 async def signup(req: SignupRequest):
-    # ensure unique email
-    existing = await db.users.find_one({"email": req.email})
+    try:
+        # ensure unique email
+        existing = await db.users.find_one({"email": req.email})
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database unavailable")
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
     # hash password
@@ -58,15 +65,26 @@ async def signup(req: SignupRequest):
         "plan": "free",
         "created_at": datetime.utcnow()
     }
-    await db.users.insert_one(user_doc)
+    try:
+        await db.users.insert_one(user_doc)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database unavailable")
     return {"message": "User created successfully ✅"}
 
 @router.post("/login", response_model=TokenResponse)
 async def login(req: LoginRequest):
-    user = await db.users.find_one({"email": req.email})
+    try:
+        user = await db.users.find_one({"email": req.email})
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database unavailable")
     if not user or not verify_password(req.password, user.get("hashed_password")):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
-    token = create_access_token({"email": user["email"], "username": user["username"], "plan": user["plan"]})
+    token = create_access_token({
+        "email": user["email"],
+        "username": user["username"],
+        "plan": user["plan"],
+        "credits": user.get("credits", 0)
+    })
     return {"access_token": token}
 
 @router.get("/me", response_model=UserResponse)
