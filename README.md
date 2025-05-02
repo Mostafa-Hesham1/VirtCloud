@@ -1,4 +1,4 @@
-﻿# <img src="VirtCloud/frontend/public/Logo.png" alt="VirtCloud Logo" width="40"/> VirtCloud
+﻿# <img src="frontend/public/Logo.png" alt="VirtCloud Logo" width="40"/> VirtCloud
 
 > 🚀 A Web-Based Virtual Machine Management System
 
