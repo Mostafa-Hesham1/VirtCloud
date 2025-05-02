@@ -97,38 +97,38 @@ const Navbar = () => {
       </Box>
       <Divider />
       <List>
-        <ListItem button component={Link} to="/">
+        <ListItem button={true.toString()} component={Link} to="/">
           <ListItemIcon><HomeIcon /></ListItemIcon>
           <ListItemText primary="Home" />
         </ListItem>
         {/* Always show Plans link */}
-        <ListItem button component={Link} to="/plans">
+        <ListItem button={true.toString()} component={Link} to="/plans">
           <ListItemIcon><MonetizationOnIcon /></ListItemIcon>
           <ListItemText primary="Plans" />
         </ListItem>
         {user.isAuthenticated ? (
           <>
-            <ListItem button component={Link} to="/dashboard">
+            <ListItem button={true.toString()} component={Link} to="/dashboard">
               <ListItemIcon><DashboardIcon /></ListItemIcon>
               <ListItemText primary="Dashboard" />
             </ListItem>
-            <ListItem button component={Link} to="/create-vm">
+            <ListItem button={true.toString()} component={Link} to="/create-vm">
               <ListItemIcon><ComputerIcon /></ListItemIcon>
               <ListItemText primary="Create VM" />
             </ListItem>
             <Divider />
-            <ListItem button onClick={handleLogout}>
+            <ListItem button={true.toString()} onClick={handleLogout}>
               <ListItemIcon><LogoutIcon /></ListItemIcon>
               <ListItemText primary="Logout" />
             </ListItem>
           </>
         ) : (
           <>
-            <ListItem button component={Link} to="/login">
+            <ListItem button={true.toString()} component={Link} to="/login">
               <ListItemIcon><AccountCircleIcon /></ListItemIcon>
               <ListItemText primary="Login" />
             </ListItem>
-            <ListItem button component={Link} to="/signup">
+            <ListItem button={true.toString()} component={Link} to="/signup">
               <ListItemIcon><AccountCircleIcon /></ListItemIcon>
               <ListItemText primary="Sign Up" />
             </ListItem>

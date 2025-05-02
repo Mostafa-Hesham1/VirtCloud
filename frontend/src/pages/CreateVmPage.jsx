@@ -28,12 +28,32 @@ const PLAN_LIMITS = {
 
 const CreateVmPage = () => {
   const navigate = useNavigate();
-  const { user } = useUser();
+  const { user, setUser, refreshUser } = useUser(); // Add refreshUser from context
   
-  // redirect if not logged in
+  // Fetch updated user data
+  const fetchUserData = async () => {
+    try {
+      const response = await axios.get('http://localhost:8000/billing/user/plan', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      setUser((prevUser) => ({
+        ...prevUser,
+        plan: response.data.plan.id,
+        credits: response.data.credits,
+      }));
+    } catch (err) {
+      console.error('Failed to fetch user data:', err);
+    }
+  };
+
+  // Redirect if not logged in and fetch updated user data
   useEffect(() => {
-    if (!user.isAuthenticated) navigate('/login');
-  }, [user, navigate]);
+    if (!user.isAuthenticated) {
+      navigate('/login');
+    } else {
+      fetchUserData(); // Fetch updated user data on component load
+    }
+  }, [user.isAuthenticated, navigate]);
 
   // Check if first time visitor
   useEffect(() => {
@@ -269,6 +289,24 @@ const CreateVmPage = () => {
     }
   };
   
+  const handlePlanUpdate = async (newPlanId) => {
+    try {
+      const response = await axios.post(
+        'http://localhost:8000/billing/user/plan',
+        { plan_id: newPlanId },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+
+      if (response.status === 200) {
+        console.log('Plan updated successfully:', response.data);
+        await refreshUser(); // Refresh user data globally
+      }
+    } catch (err) {
+      console.error('Failed to update plan:', err);
+      setError(err.response?.data?.detail || 'Failed to update plan');
+    }
+  };
+
   const getStepContent = (step) => {
     switch (step) {
       case 0: // Disk Creation
@@ -303,11 +341,14 @@ const CreateVmPage = () => {
                       label="Disk Format" 
                       onChange={e => setDiskFormat(e.target.value)}
                     >
-                      <MenuItem value="qcow2">QCOW2 (Recommended)</MenuItem>
-                      <MenuItem value="raw">RAW</MenuItem>
+                      <MenuItem value="qcow2">QCOW2 (Best for snapshots, compression, dynamic allocation)</MenuItem>
+                      <MenuItem value="raw">RAW (Fastest format, uncompressed, full space allocation)</MenuItem>
+                      <MenuItem value="vmdk">VMDK (Compatible with VMware tools and workflows)</MenuItem>
+                      <MenuItem value="vhdx">VHDX (Microsoft Hyper-V format, good for Windows VMs)</MenuItem>
+                      <MenuItem value="vdi">VDI (Best for VirtualBox migrations)</MenuItem>
                     </Select>
                     <Typography variant="caption" color="text.secondary">
-                      QCOW2 supports snapshots and is more space-efficient
+                      Select a disk format based on your needs. Hover over options for details.
                     </Typography>
                   </FormControl>
                 </Grid>
@@ -525,8 +566,7 @@ const CreateVmPage = () => {
                         onChange={e => setDisplayType(e.target.value)}
                       >
                         <MenuItem value="sdl">SDL (Desktop Window)</MenuItem>
-                        <MenuItem value="vnc">VNC (Remote Access)</MenuItem>
-                        <MenuItem value="none">Headless (No UI)</MenuItem>
+                     
                       </Select>
                     </FormControl>
                   </Paper>

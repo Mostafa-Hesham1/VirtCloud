@@ -42,9 +42,8 @@ async def get_runtime_stats(user=Depends(get_current_user)):
                 vm_data["current_session_cost"] = round(current_cost, 2)
                 vm_data["hourly_rate"] = round(hourly_rate, 2)
                 
-                # Add to total if user is on pay-as-you-go
-                if user.get("plan") == "payg":
-                    total_cost += current_cost
+                # Add to total cost for ALL users (removed plan check)
+                total_cost += current_cost
             
             vms.append(vm_data)
         

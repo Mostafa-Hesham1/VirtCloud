@@ -15,7 +15,7 @@ router = APIRouter()
 class CreateDiskRequest(BaseModel):
     name: str       # Disk name (without extension)
     size: str       # Size in format like "10G", "500M"
-    format: str     # Disk format: "qcow2" or "raw"
+    format: str     # Disk format: "qcow2", "raw", "vmdk", "vhdx", "vdi"
 
 class DiskInfoRequest(BaseModel):  # Request model for disk info
     name: str  # e.g., "ubuntu_disk.qcow2"
@@ -52,6 +52,14 @@ def create_disk(req: CreateDiskRequest):
                 status_code=500,
                 detail="❌ 'qemu-img' not found. Please install QEMU or set the correct path."
             )
+
+    # Validate disk format
+    valid_formats = ["qcow2", "raw", "vmdk", "vhdx", "vdi"]
+    if req.format not in valid_formats:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid disk format '{req.format}'. Supported formats: {', '.join(valid_formats)}"
+        )
 
     # Step 2: Construct the full disk path
     disk_filename = f"{req.name}.{req.format}"

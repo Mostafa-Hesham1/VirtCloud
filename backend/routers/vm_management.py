@@ -30,6 +30,11 @@ class UpdateVMResourcesRequest(BaseModel):
 class DeductCreditsRequest(BaseModel):
     vm_id: str       # ID of the VM
     amount: float    # credits to deduct
+    deduction_period: Optional[str] = "second"  # "second", "minute", or "hour"
+
+class DeleteVMRequest(BaseModel):
+    vm_id: str  # MongoDB ID for the VM
+    delete_disk: bool = True  # Whether to delete the associated disk file
 
 @router.post("/create")
 async def create_vm(req: CreateVMRequest, user=Depends(get_current_user)):
@@ -145,9 +150,9 @@ async def stop_vm(req: VMActionRequest, user=Depends(get_current_user)):
                 # Round to 2 decimal places
                 session_cost = round(session_cost, 2)
                 
-                # Only deduct credits for pay-as-you-go users
+                # Deduct credits for ALL users (removed the plan check)
                 user_info = await db.users.find_one({"email": user["email"]})
-                if user_info and user_info.get("plan") == "payg":
+                if user_info:
                     # Deduct credits if user has enough
                     remaining_credits = user_info.get("credits", 0) - session_cost
                     
@@ -189,7 +194,7 @@ async def stop_vm(req: VMActionRequest, user=Depends(get_current_user)):
                     "message": "VM stopped successfully", 
                     "status": "stopped",
                     "runtime_minutes": runtime_minutes,
-                    "session_cost": session_cost if user_info and user_info.get("plan") == "payg" else 0
+                    "session_cost": session_cost  # Removed the plan condition
                 }
             
             # Update VM status in DB (fallback if no start time)
@@ -336,25 +341,136 @@ async def update_vm_resources(req: UpdateVMResourcesRequest, user=Depends(get_cu
 async def deduct_credits(req: DeductCreditsRequest, user=Depends(get_current_user)):
     """Deduct credits from user's balance for VM runtime"""
     try:
-        # Decrement user's credit balance
-        result = await db.users.update_one(
-            {"email": user["email"]},
-            {"$inc": {"credits": -req.amount}}
+        # Get minimum deduction amount to ensure it's significant enough
+        deduction_amount = max(req.amount, 0.01)  # minimum deduction of 0.01 credits
+        
+        # Use MongoDB's findOneAndUpdate for atomic operations
+        # This makes the read and update operation atomic, preventing race conditions
+        result = await db.users.find_one_and_update(
+            {
+                "email": user["email"],
+                "credits": {"$gte": deduction_amount}  # Only proceed if user has sufficient credits
+            },
+            {
+                "$inc": {"credits": -deduction_amount}  # Use $inc for atomic decrement
+            },
+            return_document=True  # Return the updated document
         )
-        if result.modified_count == 0:
-            raise HTTPException(status_code=400, detail="Failed to deduct credits")
+        
+        if not result:
+            # Either user not found or insufficient credits
+            user_data = await db.users.find_one({"email": user["email"]})
+            if not user_data:
+                raise HTTPException(status_code=404, detail="User not found")
+            
+            # User found but insufficient credits
+            current_credits = user_data.get("credits", 0)
+            print(f"Insufficient credits for user {user['email']}: Current={current_credits}, Required={deduction_amount}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient credits. Current balance: {current_credits}, Required: {deduction_amount}"
+            )
+            
+        # Get values for logging and response
+        new_balance = result.get("credits", 0)
+        previous_balance = new_balance + deduction_amount
+        
+        # Log the successful credit deduction
+        print(f"CREDIT DEDUCTION: User={user['email']}, Before={previous_balance}, Deduct={deduction_amount}, After={new_balance}")
+        
         # Record billing transaction
         await db.billing.insert_one({
             "user_email": user["email"],
             "vm_id": req.vm_id,
             "action": "runtime_charge",
-            "cost": req.amount,
+            "cost": deduction_amount,
             "timestamp": datetime.utcnow(),
-            "details": {}
+            "details": {
+                "deduction_period": req.deduction_period,
+                "previous_balance": previous_balance,
+                "new_balance": new_balance
+            }
         })
-        return {"status": "success", "deducted": req.amount}
+
+        return {
+            "status": "success", 
+            "deducted": deduction_amount,
+            "previous_balance": previous_balance,
+            "new_balance": new_balance
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"Unexpected error in deduct_credits: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Credit deduction error: {str(e)}")
+
+@router.post("/delete")
+async def delete_vm(req: DeleteVMRequest, user=Depends(get_current_user)):
+    """
+    Delete a VM and optionally its associated disk file
+    """
+    try:
+        # Verify VM exists and belongs to user
+        vm = await db.vms.find_one({"_id": ObjectId(req.vm_id), "user_email": user["email"]})
+        if not vm:
+            raise HTTPException(status_code=404, detail="VM not found or doesn't belong to you")
+
+        # If VM is still running, stop it first
+        if vm.get("status") == "running":
+            pid = vm.get("pid")
+            if pid:
+                try:
+                    # Stop the process
+                    if os.name == 'nt':
+                        subprocess.run(["taskkill", "/F", "/PID", str(pid)], check=True)
+                    else:
+                        import signal
+                        os.kill(pid, signal.SIGTERM)
+                except Exception as e:
+                    print(f"Failed to stop VM process: {str(e)}")
+                    # Continue with deletion even if stopping fails
+
+        # Get disk name for deletion
+        disk_name = vm.get("disk_name")
+        
+        # Delete VM from database
+        delete_result = await db.vms.delete_one({"_id": ObjectId(req.vm_id)})
+        
+        # Delete associated disk file if requested
+        disk_deleted = False
+        if req.delete_disk and disk_name:
+            try:
+                # Check if any other VMs use this disk (to avoid deleting shared disks)
+                disk_usage_count = await db.vms.count_documents({
+                    "disk_name": disk_name,
+                    "user_email": user["email"]
+                })
+                
+                # Only delete if this was the only VM using it
+                if disk_usage_count == 0:
+                    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+                    store_dir = os.path.join(base_dir, "store")
+                    disk_path = os.path.join(store_dir, disk_name)
+                    
+                    if os.path.exists(disk_path):
+                        os.remove(disk_path)
+                        disk_deleted = True
+            except Exception as e:
+                print(f"Failed to delete disk file: {str(e)}")
+                # Continue even if disk deletion fails
+        
+        return {
+            "message": "VM deleted successfully",
+            "vm_deleted": delete_result.deleted_count > 0,
+            "disk_deleted": disk_deleted,
+            "disk_name": disk_name
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete VM: {str(e)}")
 
 @router.get("/list")
 async def list_user_vms(user=Depends(get_current_user)):

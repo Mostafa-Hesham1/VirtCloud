@@ -8,6 +8,7 @@ from database import db
 from .auth import get_current_user
 from datetime import datetime
 from bson.objectid import ObjectId
+from . import vm_management  # Add this import for DeductCreditsRequest
 
 router = APIRouter()
 
@@ -681,6 +682,12 @@ import importlib.util  # reuse initial router declared at top
 async def list_user_vms_alias(user=Depends(get_current_user)):
     from .vm_management import list_user_vms
     return await list_user_vms(user)
+
+@router.post("/deduct-credits", tags=["VM Management"])
+async def deduct_credits_alias(req: vm_management.DeductCreditsRequest, user=Depends(get_current_user)):
+    """Alias for deducting credits from user's balance for VM runtime"""
+    from .vm_management import deduct_credits
+    return await deduct_credits(req, user)
 
 # Check and include sub-routers on the same router instance
 try:

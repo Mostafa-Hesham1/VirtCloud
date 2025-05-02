@@ -15,8 +15,8 @@ import { ThemeModeProvider } from './context/ThemeContext';
 
 function App() {
   return (
-    <ThemeModeProvider>
-      <UserProvider>
+    <UserProvider>
+      <ThemeModeProvider>
         <ThemeProvider theme={theme}>
           <CssBaseline />
           <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -36,8 +36,8 @@ function App() {
             <Footer />
           </Box>
         </ThemeProvider>
-      </UserProvider>
-    </ThemeModeProvider>
+      </ThemeModeProvider>
+    </UserProvider>
   );
 }
 

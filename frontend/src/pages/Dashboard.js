@@ -8,7 +8,7 @@ import {
   TableContainer, TableHead, TableRow, Chip, IconButton, Dialog, 
   DialogTitle, DialogContent, DialogActions, TextField, FormControl, 
   InputLabel, Select, MenuItem, Alert, AlertTitle, Tooltip, LinearProgress,
-  Accordion, AccordionSummary, AccordionDetails, Slider
+  Accordion, AccordionSummary, AccordionDetails
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { useNavigate } from 'react-router-dom';
@@ -26,8 +26,7 @@ import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
-// eslint-disable-next-line no-unused-vars
-import DeleteIcon from '@mui/icons-material/Delete'; // Keep but mark as intentionally unused
+import DeleteIcon from '@mui/icons-material/Delete'; // Remove the eslint-disable comment
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import EditIcon from '@mui/icons-material/Edit';
 
@@ -88,6 +87,9 @@ function ConvertDiskDialog({ open, currentName = '', targetFormat, targetName, o
           <Select value={targetFormat} onChange={onFormatChange} label="Target Format">
             <MenuItem value="qcow2">QCOW2 (Supports snapshots, efficient)</MenuItem>
             <MenuItem value="raw">RAW (Better performance, larger size)</MenuItem>
+            <MenuItem value="vmdk">VMDK (Compatible with VMware tools and workflows)</MenuItem>
+            <MenuItem value="vhdx">VHDX (Microsoft Hyper-V format, good for Windows VMs)</MenuItem>
+            <MenuItem value="vdi">VDI (Best for VirtualBox migrations)</MenuItem>
           </Select>
         </FormControl>
         <TextField
@@ -254,7 +256,7 @@ const ResizeDiskDialogComp = React.memo(function ResizeDiskDialogComp({ open, se
           variant="contained" 
           color="primary" 
           onClick={onSubmit}
-          disabled={!resizeAmount || resizeAmount === 'custom' && !resizeAmount.match(/^\+[0-9]+[MG]$/)}
+          disabled={!resizeAmount || (resizeAmount === 'custom' && !resizeAmount.match(/^\+[0-9]+[MG]$/))}
         >
           Resize Disk
         </Button>
@@ -408,17 +410,98 @@ function TabPanel(props) {
 const Dashboard = () => {
   const theme = useTheme();
   const navigate = useNavigate();
-  const { user, loading: authLoading } = useUser();
+  const { user, refreshUser } = useUser(); // Add refreshUser from context
+  const [authLoading, setAuthLoading] = useState(false); // Initialize to false instead of true
+  const [error, setError] = useState(''); // Add error state
+  const [refreshTrigger, setRefreshTrigger] = useState(0); // Moved this line up to ensure it's initialized before use
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        setAuthLoading(true);
+        // Check if refreshUser is a function before calling it
+        if (typeof refreshUser === 'function') {
+          const success = await refreshUser();
+          if (!success) {
+            console.log("Dashboard: Authentication failed, redirecting to login");
+            navigate('/login');
+          }
+        } else {
+          console.warn("Dashboard: refreshUser is not a function, checking token directly");
+          // Fallback authentication check
+          const token = localStorage.getItem('token');
+          if (!token) {
+            console.log("Dashboard: No token found, redirecting to login");
+            navigate('/login');
+          }
+        }
+      } catch (error) {
+        console.error("Dashboard: Error during authentication check", error);
+        setError("An error occurred while checking authentication. Please try again.");
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+
+    // Skip auth check if user is already authenticated
+    if (user.isAuthenticated) {
+      console.log("Dashboard: User already authenticated, skipping auth check");
+      setAuthLoading(false);
+      return;
+    }
+
+    // Add timeout to prevent infinite loading
+    const authTimeout = setTimeout(() => {
+      if (authLoading) {
+        console.log("Dashboard: Auth check timed out, resetting loading state");
+        setAuthLoading(false);
+      }
+    }, 5000); // 5 second timeout
+
+    checkAuth();
+
+    // Cleanup timeout on unmount
+    return () => clearTimeout(authTimeout);
+  }, [refreshUser, navigate, user.isAuthenticated]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setVmLoading(true);
+        const token = localStorage.getItem('token');
+        const [vmResponse, creditsResponse] = await Promise.all([
+          axios.get('http://localhost:8000/vm/list', {
+            headers: { Authorization: `Bearer ${token}` }
+          }),
+          axios.get('http://localhost:8000/user/credits', {
+            headers: { Authorization: `Bearer ${token}` }
+          })
+        ]);
+
+        setVms(vmResponse.data.vms || []);
+        setDisplayedCredits(creditsResponse.data.credits || 0);
+      } catch (error) {
+        console.error("Dashboard: Error fetching data", error);
+        setError("Failed to load data. Please try again later.");
+      } finally {
+        setVmLoading(false);
+      }
+    };
+
+    if (user.isAuthenticated && !authLoading) {
+      fetchData(); // Only fetch data if the user is authenticated and authLoading is false
+    }
+  }, [user.isAuthenticated, authLoading, refreshTrigger]);
+
   const [tabValue, setTabValue] = useState(0);
   const [vms, setVms] = useState([]);
   const [vmLoading, setVmLoading] = useState(true); // Renamed from 'loading' to avoid duplicate declaration
-  const [error, setError] = useState('');
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
   // Track running VM timers (in seconds) and live cost/credits
   const [runningTimers, setRunningTimers] = useState({});
   const [liveCost, setLiveCost] = useState(0);
-  const [displayedCredits, setDisplayedCredits] = useState(user.credits || 0);
+  const [displayedCredits, setDisplayedCredits] = useState(0); // Initialize to 0 instead of user.credits
   const [startLoading, setStartLoading] = useState(false);
+  const [lastFetchedCredits, setLastFetchedCredits] = useState(0); // Add this to track server-fetched credits
 
   // Disk operation dialogs
   const [diskInfoDialog, setDiskInfoDialog] = useState(false);
@@ -454,6 +537,11 @@ const Dashboard = () => {
 
   // Add state for VM actions
   const [processingVmId, setProcessingVmId] = useState(null);
+  
+  // Add state for VM deletion
+  const [vmDeleteDialog, setVmDeleteDialog] = useState(false);
+  const [selectedVmToDelete, setSelectedVmToDelete] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   
   // Add state for VM start dialog
   const [vmStartDialog, setVmStartDialog] = useState(false);
@@ -551,24 +639,65 @@ const Dashboard = () => {
     const interval = setInterval(() => {
       setRunningTimers(prev => {
         const next = {};
+        let needsSync = false;
+        
         Object.entries(prev).forEach(([id, sec]) => {
           const newSec = sec + 1;
           next[id] = newSec;
-          // Every full minute, deduct credits in DB
-          if (newSec % 60 === 0 && user.plan === 'payg') {
+          
+          // Accumulate deductions and apply them once per minute
+          if (newSec % 60 === 0) {
+            needsSync = true;
             const token = localStorage.getItem('token');
-            const deductAmount = (1/3600) * (BASE + vms.find(vm => vm.id === id).cpu_count * COST_CPU + (vms.find(vm => vm.id === id).memory_mb/1024) * COST_RAM);
-            axios.post('http://localhost:8000/vm/deduct-credits',
-              { vm_id: id, amount: deductAmount },
-              { headers: { Authorization: `Bearer ${token}` } }
-            ).catch(err => console.error('Credit deduction error:', err));
+            const vm = vms.find(vm => vm.id === id);
+            if (vm) {
+              // Calculate cost for a full minute
+              const deductAmount = (1/60) * (BASE + vm.cpu_count * COST_CPU + (vm.memory_mb/1024) * COST_RAM);
+              
+              // Add a small delay between requests to prevent race conditions
+              setTimeout(() => {
+                console.log(`Deducting credits: ${deductAmount.toFixed(4)} for VM ${vm.id} (${vm.disk_name})`);
+                
+                axios.post('http://localhost:8000/vm/deduct-credits',
+                  { 
+                    vm_id: id, 
+                    amount: deductAmount,
+                    deduction_period: "minute"
+                  },
+                  { headers: { Authorization: `Bearer ${token}` } }
+                ).then(response => {
+                  console.log("Credit deduction response:", response.data);
+                  
+                  // Use the new balance directly from the response
+                  const newBalance = response.data.new_balance;
+                  setLastFetchedCredits(newBalance);
+                  
+                  // Update displayed credits based on new balance minus running costs
+                  const liveCredits = Math.max(0, newBalance - liveCost);
+                  setDisplayedCredits(liveCredits);
+                }).catch(err => {
+                  console.error('Credit deduction error:', err);
+                  // On error, force a sync with server
+                  syncCreditsWithServer();
+                });
+              }, id.charCodeAt(0) % 5 * 100);
+            }
           }
         });
+        
+        // If this is not a credit deduction interval, but we're at 10-sec mark, sync credits
+        if (!needsSync && Object.keys(next).length > 0) {
+          const firstVmSec = next[Object.keys(next)[0]];
+          if (firstVmSec % 10 === 0) {
+            syncCreditsWithServer();
+          }
+        }
+        
         return next;
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [user.plan, vms]);
+  }, [vms, liveCost]);
 
   const fetchUserVms = async () => {
     setVmLoading(true);
@@ -583,15 +712,27 @@ const Dashboard = () => {
       console.log("VM data received:", response.data);
       const loadedVms = response.data.vms || [];
       setVms(loadedVms);
-      // Initialize running VM timers
+      
+      // Initialize running VM timers with proper timezone handling
       const timers = {};
-      const now = Date.now();
+      const now = new Date().getTime();
+      
       loadedVms.forEach(vm => {
         if (vm.status === 'running' && vm.started_at) {
-          const start = new Date(vm.started_at).getTime();
-          timers[vm.id] = Math.max(0, Math.floor((now - start) / 1000));
+          // Convert the ISO string to UTC timestamp, then to local time
+          const startTimeUTC = new Date(vm.started_at).getTime();
+          const elapsedSeconds = Math.max(0, Math.floor((now - startTimeUTC) / 1000));
+          
+          console.log(`VM ${vm.id} - Start Time: ${vm.started_at}`);
+          console.log(`    → Parsed as: ${new Date(vm.started_at).toISOString()}`);
+          console.log(`    → Current time: ${new Date().toISOString()}`);
+          console.log(`    → Elapsed seconds: ${elapsedSeconds}`);
+          console.log(`    → Elapsed formatted: ${new Date(elapsedSeconds * 1000).toISOString().substr(11, 8)}`);
+          
+          timers[vm.id] = elapsedSeconds;
         }
       });
+      
       setRunningTimers(timers);
     } catch (err) {
       console.error('Error fetching VMs:', err);
@@ -607,6 +748,107 @@ const Dashboard = () => {
     }
   };
 
+  // New function to fetch user credits from server
+  const fetchUserCredits = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get('http://localhost:8000/user/credits', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      console.log("Fetched user credits:", response.data.credits);
+      
+      const newCredits = response.data.credits;
+      // Only update if the credits have actually changed
+      if (newCredits !== lastFetchedCredits) {
+        setDisplayedCredits(newCredits);
+        setLastFetchedCredits(newCredits);
+      }
+      return newCredits;
+    } catch (err) {
+      console.error("Failed to fetch user credits:", err);
+      return null;
+    }
+  };
+
+  // Call fetchUserCredits when component mounts and after authentication
+  useEffect(() => {
+    if (!authLoading && user.isAuthenticated) {
+      console.log("Fetching user credits after authentication");
+      fetchUserCredits();
+    }
+  }, [authLoading, user.isAuthenticated]);
+
+  // Also fetch credits after each refresh
+  useEffect(() => {
+    if (user.isAuthenticated) {
+      fetchUserCredits();
+    }
+  }, [refreshTrigger]);
+
+  // Add a useEffect to calculate live costs and update displayed credits accordingly
+  useEffect(() => {
+    // Calculate total cost for all running VMs
+    let totalCost = 0;
+    Object.entries(runningTimers).forEach(([id, seconds]) => {
+      const vm = vms.find(vm => vm.id === id);
+      if (vm) {
+        const vmCost = (seconds / 3600) * (BASE + vm.cpu_count * COST_CPU + (vm.memory_mb/1024) * COST_RAM);
+        totalCost += vmCost;
+      }
+    });
+    
+    // Round to 2 decimal places for consistency
+    const roundedCost = parseFloat(totalCost.toFixed(2));
+    
+    // Only update if the cost has actually changed
+    if (roundedCost !== liveCost) {
+      setLiveCost(roundedCost);
+      
+      // Calculate and update displayed credits based on server balance minus current cost
+      const liveCredits = Math.max(0, lastFetchedCredits - roundedCost);
+      setDisplayedCredits(parseFloat(liveCredits.toFixed(2)));
+      
+      console.log("Credits calculation:", {
+        serverCredits: lastFetchedCredits,
+        liveCost: roundedCost,
+        displayedCredits: liveCredits.toFixed(2)
+      });
+    }
+  }, [runningTimers, vms, lastFetchedCredits]);
+
+  // Add a new function for direct credit synchronization
+  const syncCreditsWithServer = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get('http://localhost:8000/user/credits', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      // Log credit update for debugging
+      console.log(`Credit sync: ${lastFetchedCredits.toFixed(2)} → ${response.data.credits.toFixed(2)}`);
+      
+      // Update both displayed and last fetched credits immediately
+      setDisplayedCredits(response.data.credits);
+      setLastFetchedCredits(response.data.credits);
+      
+      return response.data.credits;
+    } catch (err) {
+      console.error("Failed to sync credits:", err);
+      return null;
+    }
+  };
+
+  // Add a useEffect to sync credits when stopping a VM
+  useEffect(() => {
+    // Check if we just stopped a VM
+    if (processingVmId === null && operationResult && operationResult.success && 
+        operationResult.message && operationResult.message.includes('stopped')) {
+      // We just stopped a VM successfully, sync credits immediately
+      console.log("VM was stopped - synchronizing credits with server");
+      syncCreditsWithServer();
+    }
+  }, [processingVmId, operationResult]);
+
   // Show loading when authentication is in progress
   if (authLoading) {
     return (
@@ -617,12 +859,27 @@ const Dashboard = () => {
     );
   }
 
+  if (error) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh', flexDirection: 'column' }}>
+        <Typography color="error" mb={2}>{error}</Typography>
+        <Button variant="contained" onClick={() => window.location.reload()}>Retry</Button>
+      </Box>
+    );
+  }
+
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
   };
   
   const refreshData = () => {
-    setRefreshTrigger(prev => prev + 1);
+    setRefreshTrigger((prev) => prev + 1);
+    // Check if refreshUser is a function before calling it
+    if (typeof refreshUser === 'function') {
+      refreshUser(); // Refresh user data globally
+    } else {
+      console.warn("Dashboard: refreshUser is not a function, skipping user refresh");
+    }
   };
 
   // Disk operations
@@ -650,7 +907,6 @@ const Dashboard = () => {
     setSelectedDisk(diskName);
     const parts = diskName.split('.');
     const ext = parts.pop();
-    const baseName = parts.join('.');
     setTargetFormat(ext);
     setTargetName(diskName);
     setConvertDiskDialog(true);
@@ -757,6 +1013,9 @@ const Dashboard = () => {
           : vm
       ));
       
+      // Run an immediate sync to get the new credit balance
+      await syncCreditsWithServer();
+      
       // Show success message
       setOperationResult({
         success: true,
@@ -802,7 +1061,47 @@ const Dashboard = () => {
     } finally {
       setProcessingVmId(null);
       setSelectedVmToStart(null);
-      setStartLoading(false);
+    }
+  };
+
+  // Function to open delete VM dialog
+  const handleDeleteVmClick = (vm) => {
+    setSelectedVmToDelete(vm);
+    setVmDeleteDialog(true);
+  };
+
+  // Function to handle VM deletion
+  const handleDeleteVm = async () => {
+    if (!selectedVmToDelete) return;
+    const vmId = selectedVmToDelete.id;
+    setDeleteLoading(true);
+    try {
+      const response = await axios.post(`http://localhost:8000/vm/delete`, 
+        { vm_id: vmId, delete_disk: true },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }}
+      );
+      
+      console.log(`VM delete response:`, response.data);
+      
+      // Remove VM from local state
+      setVms(prevVms => prevVms.filter(vm => vm.id !== vmId));
+      
+      // Show success message
+      setOperationResult({
+        success: true,
+        message: `VM and disk deleted successfully`
+      });
+      
+      setVmDeleteDialog(false);
+    } catch (err) {
+      console.error(`Error deleting VM:`, err);
+      setOperationResult({
+        success: false,
+        message: `Failed to delete VM: ${err.response?.data?.detail || 'Unknown error'}`
+      });
+    } finally {
+      setDeleteLoading(false);
+      setSelectedVmToDelete(null);
     }
   };
 
@@ -959,7 +1258,11 @@ const Dashboard = () => {
                       {displayedCredits.toFixed(2)}
                     </Typography>
                     <Typography variant="subtitle2">Credits</Typography>
-                    {user.plan === 'payg' && <Typography variant="caption">Live cost: {liveCost.toFixed(2)}</Typography>}
+                    <Tooltip title="Server balance minus current VM usage costs" placement="bottom">
+                      <Typography variant="caption">
+                        Server: {lastFetchedCredits.toFixed(2)} | Running: -{liveCost.toFixed(2)}
+                      </Typography>
+                    </Tooltip>
                   </Box>
                   <Avatar sx={{ bgcolor: theme.palette.warning.main }}>
                     <AccountBalanceWalletIcon />
@@ -1095,6 +1398,15 @@ const Dashboard = () => {
 
   // VM Management Component
   const VmManagement = () => {
+    // Calculate total cost for all running VMs
+    const totalRunningCost = Object.entries(runningTimers).reduce((sum, [id, sec]) => {
+      const vm = vms.find(vm => vm.id === id);
+      if (vm && vm.status === 'running') {
+        return sum + (sec / 3600 * (BASE + vm.cpu_count * COST_CPU + (vm.memory_mb/1024) * COST_RAM));
+      }
+      return sum;
+    }, 0);
+
     return (
       <Box>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -1110,6 +1422,29 @@ const Dashboard = () => {
         <Typography variant="subtitle1" color="text.secondary" paragraph>
           Manage your virtual machines and disk operations.
         </Typography>
+
+        {/* Add credit status section */}
+        <Paper sx={{ p: 2, mb: 3, bgcolor: theme.palette.background.default }}>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} md={6}>
+              <Typography variant="subtitle1">
+                <AccountBalanceWalletIcon sx={{ verticalAlign: 'middle', mr: 1, color: theme.palette.warning.main }} />
+                <strong>Current Credits:</strong> {displayedCredits.toFixed(2)}
+                <Tooltip title="Credits in database minus current usage" placement="right">
+                  <Typography variant="caption" sx={{ ml: 1 }}>
+                    (Server: {lastFetchedCredits.toFixed(2)})
+                  </Typography>
+                </Tooltip>
+              </Typography>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Typography variant="subtitle1">
+                <strong>Total Running Cost:</strong> {totalRunningCost.toFixed(2)} credits/hour
+              </Typography>
+            </Grid>
+          </Grid>
+        </Paper>
+
         {vmLoading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
             <CircularProgress />
@@ -1231,10 +1566,22 @@ const Dashboard = () => {
                             </IconButton>
                           </Tooltip>
                         )}
+                        {vm.status === "stopped" && (
+                          <Tooltip title="Delete VM">
+                            <IconButton 
+                              size="small" 
+                              color="error"
+                              onClick={() => handleDeleteVmClick(vm)}
+                              disabled={processingVmId === vm.id}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                       </Box>
                     </TableCell>
                     <TableCell align="center">
-                      {vm.status === 'running' ? new Date((runningTimers[vm.id] || 0) * 1000).toISOString().substr(11, 8) : '--'}
+                      {vm.status === 'running' ? formatElapsedTime(runningTimers[vm.id] || 0) : '--'}
                     </TableCell>
                     <TableCell align="center">
                       {vm.status === 'running'
@@ -1400,6 +1747,13 @@ const Dashboard = () => {
         planLimits={PLAN_LIMITS[user.plan]}
         onClose={() => setEditResourcesDialog(false)}
         onSubmit={handleUpdateResources}
+      />
+      <DeleteVMDialog
+        open={vmDeleteDialog}
+        vm={selectedVmToDelete}
+        onClose={() => setVmDeleteDialog(false)}
+        onSubmit={handleDeleteVm}
+        loading={deleteLoading}
       />
     </Box>
   );
@@ -1589,6 +1943,62 @@ const DiskInfoDialog = React.memo(function DiskInfoDialog({ open, selectedDisk, 
           </Button>
         )}
         <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  );
+});
+
+// Add a helper function for time formatting at the component level (outside the component function)
+const formatElapsedTime = (seconds) => {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  
+  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+};
+
+// Add a new DeleteVMDialog component
+const DeleteVMDialog = React.memo(function DeleteVMDialog({ open, vm, onClose, onSubmit, loading }) {
+  const theme = useTheme();
+  if (!vm) return null;
+  return (
+    <Dialog keepMounted disablePortal transitionDuration={0} open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <DeleteIcon sx={{ mr: 1, color: theme.palette.error.main }} />
+          Delete Virtual Machine
+        </Box>
+      </DialogTitle>
+      <DialogContent dividers>
+        <Typography variant="h6" gutterBottom color="error">
+          Warning: This action cannot be undone!
+        </Typography>
+        <Typography paragraph>
+          Are you sure you want to delete the VM <strong>{vm.disk_name.split('.')[0]}</strong> and its associated disk?
+        </Typography>
+        <Alert severity="warning">
+          <AlertTitle>Important</AlertTitle>
+          <Typography variant="body2">
+            This will permanently delete:
+            <ul>
+              <li>The VM configuration</li>
+              <li>The disk file: <strong>{vm.disk_name}</strong></li>
+              <li>All VM usage history</li>
+            </ul>
+          </Typography>
+        </Alert>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button 
+          variant="contained" 
+          color="error" 
+          onClick={onSubmit}
+          disabled={loading}
+          startIcon={loading ? <CircularProgress size={20} /> : <DeleteIcon />}
+        >
+          {loading ? "Deleting..." : "Delete VM"}
+        </Button>
       </DialogActions>
     </Dialog>
   );

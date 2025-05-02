@@ -214,3 +214,15 @@ async def request_enterprise_quote(user=Depends(get_current_user)):
         "status": "success",
         "message": "Your quote request has been submitted. Our team will contact you shortly."
     }
+
+@router.get("/user/credits")
+async def get_user_credits(user=Depends(get_current_user)):
+    """Get the current user's credit balance"""
+    try:
+        user_data = await db.users.find_one({"email": user["email"]})
+        if not user_data:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return {"credits": user_data.get("credits", 0)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch user credits: {str(e)}")

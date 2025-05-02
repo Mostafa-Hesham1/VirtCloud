@@ -15,6 +15,7 @@ class SignupRequest(BaseModel):
     email: EmailStr
     username: str = Field(..., min_length=3)
     password: str = Field(..., min_length=8)
+    plan: str = "free"  # Default to "free" plan
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -58,11 +59,23 @@ async def signup(req: SignupRequest):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
     # hash password
     hashed = get_password_hash(req.password)
+
+    # Determine initial credits based on the plan
+    initial_credits = 0
+    if req.plan == "free":
+        initial_credits = 15  # Free plan monthly credits
+    elif req.plan == "pro":
+        initial_credits = 150  # Pro plan monthly credits
+    elif req.plan == "unlimited":
+        initial_credits = 600  # Unlimited plan monthly credits
+    # Pay-as-you-go (payg) starts with 0 credits by default
+
     user_doc = {
         "email": req.email,
         "username": req.username,
         "hashed_password": hashed,
-        "plan": "free",
+        "plan": req.plan,
+        "credits": initial_credits,
         "created_at": datetime.utcnow()
     }
     try:
@@ -90,3 +103,24 @@ async def login(req: LoginRequest):
 @router.get("/me", response_model=UserResponse)
 async def read_current_user(current: dict = Depends(get_current_user)):
     return current
+
+@router.get("/user/credits")
+async def get_user_credits(user=Depends(get_current_user)):
+    """Get the current user's credit balance - optimized for speed"""
+    try:
+        # Use MongoDB projection to get only the credits field for efficiency
+        user_data = await db.users.find_one(
+            {"email": user["email"]},
+            {"credits": 1}
+        )
+        
+        if not user_data:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Include timestamp to help track when the balance was retrieved
+        return {
+            "credits": user_data.get("credits", 0),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch user credits: {str(e)}")
