@@ -34,6 +34,10 @@ import EditIcon from '@mui/icons-material/Edit';
 import CreateVmPage from './CreateVmPage';
 import { renameDisk as apiRenameDisk } from '../api/vm';
 
+// Import Docker management
+import DockerManagement from '../components/docker/DockerManagement';
+import { DockerProvider } from '../context/DockerContext';
+
 // Stable Rename Disk dialog component
 function RenameDiskDialog({ open, currentName, value, onChange, onClose, onSubmit }) {
   return (
@@ -1671,6 +1675,8 @@ const Dashboard = () => {
           <Tab label="Dashboard" icon={<ComputerIcon />} iconPosition="start" />
           <Tab label="Create VM" icon={<StorageIcon />} iconPosition="start" />
           <Tab label="Manage VMs" icon={<MemoryIcon />} iconPosition="start" />
+          {/* Add Docker tab */}
+          <Tab label="Docker" icon={<StorageIcon />} iconPosition="start" />
         </Tabs>
       </Box>
       
@@ -1685,6 +1691,13 @@ const Dashboard = () => {
       
       <TabPanel value={tabValue} index={2}>
         <VmManagement />
+      </TabPanel>
+      
+      {/* Docker management tab panel */}
+      <TabPanel value={tabValue} index={3}>
+        <DockerProvider>
+          <DockerManagement />
+        </DockerProvider>
       </TabPanel>
       
       {/* Dialogs */}

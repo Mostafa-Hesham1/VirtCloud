@@ -4,6 +4,7 @@ from routers import vm, auth, billing, vm_management, vm_disk, vm_stats
 from database import db  # import Mongo client database
 from pymongo import ReadPreference
 from routers.auth import get_current_user
+from routers.docker import router as docker_router  # Import directly from the docker module
 
 app = FastAPI(
     title="VirtCloud API",
@@ -28,6 +29,7 @@ app.include_router(billing.router, prefix="/billing", tags=["Billing & Plans"])
 app.include_router(vm_management.router, prefix="/vm", tags=["VM Management"])
 app.include_router(vm_disk.router, prefix="/vm/disk", tags=["VM Disk"])
 app.include_router(vm_stats.router, prefix="/vm/stats", tags=["VM Stats"])
+app.include_router(docker_router, prefix="/docker", tags=["Docker"])
 
 @app.on_event("startup")
 async def check_mongo_connection():
@@ -55,3 +57,4 @@ async def get_user_credits(user=Depends(get_current_user)):
 @app.get("/")
 def root():
     return {"message": "VirtCloud backend is running 🚀"}
+
