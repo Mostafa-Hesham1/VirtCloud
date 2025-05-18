@@ -36,7 +36,7 @@ class DeleteVMRequest(BaseModel):
     vm_id: str  # MongoDB ID for the VM
     delete_disk: bool = True  # Whether to delete the associated disk file
 
-@router.post("/create")
+@router.post("/create")#M
 async def create_vm(req: CreateVMRequest, user=Depends(get_current_user)):
     """
     Launch a QEMU x86_64 VM using specified disk, ISO, memory, CPU, and display.
@@ -95,7 +95,7 @@ async def create_vm(req: CreateVMRequest, user=Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"💥 {str(e)}")
 
-@router.post("/stop")
+@router.post("/stop")#Molla
 async def stop_vm(req: VMActionRequest, user=Depends(get_current_user)):
     """
     Stop a running VM
@@ -218,7 +218,7 @@ async def stop_vm(req: VMActionRequest, user=Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing request: {str(e)}")
 
-@router.post("/start")
+@router.post("/start")#Molla
 async def start_vm(req: VMActionRequest, user=Depends(get_current_user)):
     """
     Start a previously stopped VM, with option to include ISO or not
@@ -299,7 +299,7 @@ async def start_vm(req: VMActionRequest, user=Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to start VM: {str(e)}")
 
-@router.post("/update-resources")
+@router.post("/update-resources")#M
 async def update_vm_resources(req: UpdateVMResourcesRequest, user=Depends(get_current_user)):
     """
     Update the CPU and memory resources for a VM
@@ -337,7 +337,7 @@ async def update_vm_resources(req: UpdateVMResourcesRequest, user=Depends(get_cu
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update VM resources: {str(e)}")
 
-@router.post("/deduct-credits")
+@router.post("/deduct-credits")#K
 async def deduct_credits(req: DeductCreditsRequest, user=Depends(get_current_user)):
     """Deduct credits from user's balance for VM runtime"""
     try:
@@ -405,7 +405,7 @@ async def deduct_credits(req: DeductCreditsRequest, user=Depends(get_current_use
         print(f"Unexpected error in deduct_credits: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Credit deduction error: {str(e)}")
 
-@router.post("/delete")
+@router.post("/delete")#3
 async def delete_vm(req: DeleteVMRequest, user=Depends(get_current_user)):
     """
     Delete a VM and optionally its associated disk file
@@ -472,7 +472,7 @@ async def delete_vm(req: DeleteVMRequest, user=Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete VM: {str(e)}")
 
-@router.get("/list")
+@router.get("/list")#3
 async def list_user_vms(user=Depends(get_current_user)):
     """List all VMs created by the current user"""
     try:

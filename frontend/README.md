@@ -1,70 +1,189 @@
-# Getting Started with Create React App
+# VirtCloud Frontend
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+![React](https://img.shields.io/badge/React-19.1.0-61DAFB?style=for-the-badge&logo=react)
+![Material UI](https://img.shields.io/badge/Material%20UI-7.0.2-007FFF?style=for-the-badge&logo=mui)
+![axios](https://img.shields.io/badge/axios-1.8.4-5A29E4?style=for-the-badge)
+![React Router](https://img.shields.io/badge/React%20Router-6.30.0-CA4245?style=for-the-badge&logo=react-router)
 
-## Available Scripts
+This repository contains the frontend application for VirtCloud - a comprehensive cloud infrastructure management platform with VM and Docker management capabilities.
+
+## 🚀 Technologies
+
+VirtCloud frontend leverages modern web technologies:
+
+- **React** (v19.1.0): Core UI library for building component-based interfaces
+- **Material UI** (v7.0.2): Complete design system with pre-built components
+- **React Router** (v6.30.0): Client-side routing for single-page applications
+- **Axios** (v1.8.4): Promise-based HTTP client for API requests
+- **CodeMirror** (v5.65.2): Versatile text editor for the Dockerfile editor
+- **React Context API**: State management across components
+- **Testing Libraries**: Jest, React Testing Library for component testing
+
+## 📂 Project Structure
+
+The frontend is organized into the following structure:
+
+```
+frontend/
+├── public/            # Static assets
+├── src/
+│   ├── api/           # API client modules
+│   │   ├── auth.js    # Authentication API calls
+│   │   ├── docker.js  # Docker management API calls
+│   │   └── vm.js      # VM management API calls
+│   ├── components/    # Reusable UI components
+│   │   ├── docker/    # Docker management components
+│   │   │   ├── BuildStatusDisplay.js   # Docker build status UI
+│   │   │   ├── ContainerPanel.js       # Container management UI
+│   │   │   ├── DockerfilePanel.js      # Dockerfile management UI
+│   │   │   ├── ImagePanel.js           # Docker image management UI
+│   │   │   └── RunContainerDialog.js   # Container creation dialog
+│   │   ├── CreateDiskForm.js     # VM disk creation form
+│   │   ├── CreateVMForm.js       # VM creation form
+│   │   ├── LoginForm.js          # Authentication form
+│   │   ├── Navbar.js             # Application navigation
+│   │   └── PlanCard.js           # Subscription plan card
+│   ├── context/        # React context providers
+│   │   ├── DockerContext.js      # Docker state management
+│   │   ├── ThemeContext.js       # Theme customization
+│   │   └── UserContext.js        # User authentication state
+│   ├── pages/          # Page components
+│   │   ├── Dashboard.js          # Main dashboard
+│   │   ├── Docker.js             # Docker management page
+│   │   ├── LoginPage.js          # Login page
+│   │   ├── CreateVmPage.jsx      # VM creation page
+│   │   ├── HomePage.jsx          # Landing page
+│   │   ├── PlansPage.js          # Subscription plans
+│   │   ├── SignupPage.jsx        # Registration page
+│   │   └── VmMonitorPage.jsx     # VM monitoring page
+│   ├── services/       # Business logic services
+│   │   ├── authService.js        # Authentication logic
+│   │   └── billingService.js     # Billing operations
+│   ├── styles/         # Global styles and theme configuration
+│   │   └── theme.js              # Material UI theme customization
+│   ├── App.js          # Application root component
+│   └── index.js        # Entry point
+└── package.json        # Dependencies and scripts
+```
+
+## 🔧 Installation & Setup
+
+1. Clone the repository
+   ```bash
+   git clone https://github.com/yourusername/virtcloud-frontend.git
+   cd virtcloud-frontend
+   ```
+
+2. Install dependencies
+   ```bash
+   npm install
+   ```
+
+3. Create a `.env` file in the root directory
+   ```
+   REACT_APP_API_URL=http://localhost:8000
+   REACT_APP_AUTH_STORAGE_KEY=virt_cloud_token
+   ```
+
+4. Start the development server
+   ```bash
+   npm start
+   ```
+
+The application will be available at http://localhost:3000.
+
+## 📜 Available Scripts
 
 In the project directory, you can run:
 
-### `npm start`
+- `npm start` - Runs the app in the development mode. Open http://localhost:3000 to view it in your browser. The page will reload when you make changes.
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+- `npm test` - Launches the test runner in the interactive watch mode. See the section about running tests for more information.
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+- `npm run build` - Builds the app for production to the build folder. It correctly bundles React in production mode and optimizes the build for the best performance. The build is minified and the filenames include the hashes.
 
-### `npm test`
+## 🌈 Features
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+### 🔐 Authentication
+- User registration and login
+- JWT token-based authentication
+- Protected routes for authenticated users
 
-### `npm run build`
+### 📊 Dashboard
+- Overview of all cloud resources
+- Usage statistics and billing information
+- Quick access to VM and Docker management
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### 💻 VM Management
+- Create, start, stop, and delete virtual machines
+- Disk management (create, resize, convert)
+- Performance monitoring
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+### 🐳 Docker Management
+- Dockerfile Management: Create, edit, and delete Dockerfiles
+- Image Building: Build Docker images from Dockerfiles with live logs
+- Container Management: Create, start, stop, and delete containers
+- Image Management: Search, pull, and manage Docker images
+- Status Monitoring: Track build and pull operations
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+### 💰 Subscription Plans
+- View and manage subscription plans
+- Credit usage monitoring
+- Plan upgrade/downgrade options
 
-### `npm run eject`
+## 🎨 UI Components
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+VirtCloud uses Material UI v7 components to create a consistent, responsive UI:
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+- MUI Components: AppBar, Drawer, Card, Button, TextField, Dialog, etc.
+- Custom Components: Custom-styled MUI components for specialized functionality
+- Layout Components: Responsive layouts for different screen sizes
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+Docker-specific Components:
+- DockerfilePanel: Create and manage Dockerfiles
+- ImagePanel: Browse, search, and pull Docker images
+- ContainerPanel: Control running containers
+- BuildStatusDisplay: Monitor Docker image build progress
+- RunContainerDialog: Configure and launch Docker containers
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+## 🔌 API Integration
 
-## Learn More
+The frontend communicates with the backend via RESTful APIs:
+- Axios is used for HTTP requests
+- API calls are organized by domain (auth, docker, vm)
+- JWT tokens are included in request headers for authentication
+- Real-time updates for long-running operations
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+## 🧪 Testing
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+Run tests with `npm test`
 
-### Code Splitting
+The project uses:
+- Jest as the test runner
+- React Testing Library for component testing
+- Mock Service Worker for API mocking
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+## 🔒 Environment Variables
 
-### Analyzing the Bundle Size
+The following environment variables can be configured:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+| Variable | Description | Default |
+|----------|-------------|---------|
+| REACT_APP_API_URL | Backend API URL | http://localhost:8000 |
+| REACT_APP_AUTH_STORAGE_KEY | LocalStorage key for auth token | virt_cloud_token |
 
-### Making a Progressive Web App
+## 📱 Browser Support
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+VirtCloud frontend supports all modern browsers:
+- Chrome (latest 2 versions)
+- Firefox (latest 2 versions)
+- Safari (latest 2 versions)
+- Edge (latest 2 versions)
 
-### Advanced Configuration
+## 🤝 Contributing
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-### Deployment
+## 📄 License
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+This project is licensed under the MIT License - see the LICENSE file for details.

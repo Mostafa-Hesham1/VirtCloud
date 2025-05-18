@@ -103,8 +103,8 @@ def get_dockerfiles_dir():
     os.makedirs(dockerfiles_dir, exist_ok=True)
     return dockerfiles_dir
 
-# 1. Create Dockerfile
-@router.post("/dockerfile/create", status_code=status.HTTP_201_CREATED)
+# 1. Create Dockerfile M
+@router.post("/dockerfile/create", status_code=status.HTTP_201_CREATED)#Mostafa
 async def create_dockerfile(
     req: DockerfileCreateRequest, 
     user=Depends(get_current_user)
@@ -251,7 +251,7 @@ async def create_dockerfile(
         )
 
 # 2. Build Docker Image from Dockerfile
-@router.post("/image/build")
+@router.post("/image/build")#Mostafa
 async def build_docker_image(
     req: DockerImageBuildRequest, 
     background_tasks: BackgroundTasks,
@@ -536,7 +536,7 @@ async def build_image_task(build_id, dockerfile_path, image_tag, user_email):
         )
 
 # 3. List Docker images
-@router.get("/images")
+@router.get("/images")#Mostafa
 async def list_docker_images(user=Depends(get_current_user)):
     """List all Docker images available on the system with improved timeout handling"""
     try:
@@ -786,7 +786,7 @@ async def list_docker_images(user=Depends(get_current_user)):
         }
 
 # 4. List running containers
-@router.get("/containers")
+@router.get("/containers")#Y
 async def list_containers(user=Depends(get_current_user)):
     """List all Docker containers with improved timeout handling"""
     try:
@@ -923,7 +923,7 @@ async def list_containers(user=Depends(get_current_user)):
         }
 
 # 5. Create and run a container
-@router.post("/container/create")
+@router.post("/container/create")#y
 async def create_container(request: Request, user=Depends(get_current_user)):
     print("🔵 [API] /container/create called")
     data = await request.json()
@@ -1036,18 +1036,18 @@ async def create_container(request: Request, user=Depends(get_current_user)):
         return {"error": str(e)}
 
 # Also add these routes to ensure compatibility with different URL formats
-@router.post("/docker/container/create")
+@router.post("/docker/container/create")#y
 async def create_docker_container(request: Request, user=Depends(get_current_user)):
     """Alias for /container/create for backward compatibility"""
     return await create_container(request, user)
 
-@router.post("/create")
+@router.post("/create")#y
 async def create_container_alt(request: Request, user=Depends(get_current_user)):
     """Alternative endpoint for container creation"""
     return await create_container(request, user)
 
 # Add a proper container start endpoint that matches what the frontend calls
-@router.post("/container/{name}/start")
+@router.post("/container/{name}/start")#y
 async def start_container(name: str):
     print(f"🔵 [API] /container/{name}/start called")
     try:
@@ -1063,7 +1063,7 @@ async def start_container(name: str):
         return {"error": str(e)}
 
 # Fix the path for the container start by ID endpoint
-@router.post("/container/id/{container_id}/start")
+@router.post("/container/id/{container_id}/start")#y
 async def start_container_by_id(container_id: str):
     print(f"🔵 [API] /container/id/{container_id}/start called")
     try:
@@ -1075,7 +1075,7 @@ async def start_container_by_id(container_id: str):
         return {"error": str(e)}
 
 # Fix container stop endpoint to be more permissive
-@router.post("/container/stop")
+@router.post("/container/stop")#k
 async def stop_container(req: DockerContainerStopRequest, user=Depends(get_current_user)):
     """Stop a running Docker container"""
     try:
@@ -1125,7 +1125,7 @@ async def stop_container(req: DockerContainerStopRequest, user=Depends(get_curre
         )
 
 # Also add a more permissive endpoint that takes container ID directly from URL
-@router.post("/container/{container_id}/stop")
+@router.post("/container/{container_id}/stop")#K
 async def stop_container_by_id(container_id: str):
     """Stop a container by ID - alternative endpoint with no permission check"""
     try:
@@ -1164,7 +1164,7 @@ async def stop_container_by_id(container_id: str):
             content={"error": f"Failed to stop container: {str(e)}"}
         )
 
-@router.post("/container/delete")
+@router.post("/container/delete")#k
 async def delete_container(
     req: DockerContainerDeleteRequest,
     user=Depends(get_current_user)
@@ -1221,7 +1221,7 @@ async def delete_container(
         )
 
 # 7. Search for local images
-@router.get("/image/search/local")
+@router.get("/image/search/local")#M
 async def search_local_images(
     term: str,
     user=Depends(get_current_user)
@@ -1327,7 +1327,7 @@ async def search_local_images(
         )
 
 # 8. Search for images on DockerHub
-@router.get("/image/search/hub")
+@router.get("/image/search/hub")#Mostafa
 async def search_dockerhub_images(
     term: str,
     limit: int = 25,
@@ -1405,7 +1405,7 @@ async def search_dockerhub_images(
         return {"results": [], "error": f"Failed to search DockerHub: {str(e)}"}
 
 # 9. Pull an image from DockerHub
-@router.post("/image/pull")
+@router.post("/image/pull")#Mostafa
 async def pull_docker_image(
     req: DockerImagePullRequest,
     background_tasks: BackgroundTasks,
@@ -1603,7 +1603,7 @@ async def get_pull_status(
         )
 
 # 12. List user's Dockerfiles
-@router.get("/dockerfiles")
+@router.get("/dockerfiles")#3
 async def list_dockerfiles(user=Depends(get_current_user)):
     """List all Dockerfiles created by the user"""
     try:
@@ -1630,13 +1630,16 @@ async def list_dockerfiles(user=Depends(get_current_user)):
             detail=f"Failed to list Dockerfiles: {str(e)}"
         )
 
-@router.post("/dockerfile/update")
+@router.post("/dockerfile/update")#Molla
 async def update_dockerfile(
     req: DockerfileUpdateRequest,
     user=Depends(get_current_user)
 ):
     """Update an existing Dockerfile with new content"""
     try:
+        # Add detailed logging for troubleshooting
+        print(f"Updating dockerfile: {req.name} for user {user['email']}")
+        
         # Verify the user owns this Dockerfile
         dockerfile = await db.dockerfiles.find_one({
             "name": req.name,
@@ -1644,6 +1647,7 @@ async def update_dockerfile(
         })
         
         if not dockerfile:
+            print(f"Dockerfile not found: {req.name} for user {user['email']}")
             raise HTTPException(
                 status_code=404,
                 detail=f"Dockerfile '{req.name}' not found or you don't have permission to modify it"
@@ -1651,51 +1655,157 @@ async def update_dockerfile(
             
         # Get the file path
         dockerfile_path = dockerfile.get("path")
-        if not dockerfile_path or not os.path.exists(dockerfile_path):
-            raise HTTPException(
-                status_code=404,
-                detail=f"Dockerfile file not found on disk"
-            )
+        print(f"Dockerfile path from database: {dockerfile_path}")
+        
+        # Verify the path exists and is valid
+        if not dockerfile_path:
+            print(f"Dockerfile path is missing in database record")
             
-        # Write the updated content to disk
-        with open(dockerfile_path, "w") as f:
-            f.write(req.content)
+            # Recreate the path consistently with how it's created in the create operation
+            dockerfiles_dir = get_dockerfiles_dir()
+            dockerfile_path = os.path.join(dockerfiles_dir, f"{req.name}.Dockerfile")
+            print(f"Recreated dockerfile path: {dockerfile_path}")
+            
+            # Update the path in the database for future operations
+            await db.dockerfiles.update_one(
+                {"name": req.name, "user_email": user["email"]},
+                {"$set": {"path": dockerfile_path}}
+            )
+            print(f"Updated path in database to: {dockerfile_path}")
+        
+        if not os.path.exists(os.path.dirname(dockerfile_path)):
+            print(f"Directory doesn't exist for path: {dockerfile_path}")
+            
+            # Try to recreate the directory structure if it doesn't exist
+            try:
+                os.makedirs(os.path.dirname(dockerfile_path), exist_ok=True)
+                print(f"Created directory: {os.path.dirname(dockerfile_path)}")
+            except Exception as dir_error:
+                print(f"Error creating directory: {str(dir_error)}")
+        
+        # Ensure the content is a valid string
+        if not isinstance(req.content, str):
+            print(f"Content is not a string type: {type(req.content)}")
+            content = str(req.content)
+        else:
+            content = req.content
+        
+        # Write the file using a completely new approach with explicit close
+        try:
+            print(f"Writing content to file: {dockerfile_path}")
+            
+            # Use a more direct file writing approach with explicit flush and close
+            with open(dockerfile_path, "w", encoding="utf-8") as f:
+                f.write(content)
+                f.flush()  # Force flush to disk
+                os.fsync(f.fileno())  # Force sync to filesystem
+            
+            print(f"Successfully wrote content to file: {dockerfile_path}")
+            
+            # Double-check the file was actually written by reading it back
+            if os.path.exists(dockerfile_path):
+                with open(dockerfile_path, "r", encoding="utf-8") as check:
+                    first_100 = check.read(100)
+                    print(f"File verification: First 100 chars: {first_100}")
+                    
+                    # Check if content length seems correct
+                    check.seek(0, os.SEEK_END)
+                    file_size = check.tell()
+                    print(f"File size after write: {file_size} bytes (expected approx. {len(content)} bytes)")
+                    
+                    if file_size < 10 and len(content) > 10:
+                        print("WARNING: File appears to be truncated!")
+            else:
+                print(f"ERROR: After writing, file does not exist at {dockerfile_path}")
+                
+            # Force a file close of any potentially open handles
+            import gc
+            gc.collect()
+                
+            # Try an alternative write method as a backup if something went wrong
+            if not os.path.exists(dockerfile_path) or os.path.getsize(dockerfile_path) < 10:
+                print("Using alternative file writing method...")
+                import io
+                with io.open(dockerfile_path, "w", encoding="utf-8", newline="\n") as f:
+                    f.write(content)
+                print("Alternative write completed")
+        except Exception as write_error:
+            print(f"Error writing to file: {str(write_error)}")
+            
+            # If standard open fails, try with absolute path and administrator privileges if available
+            try:
+                print("Attempting alternative write method with absolute path...")
+                absolute_path = os.path.abspath(dockerfile_path)
+                print(f"Absolute path: {absolute_path}")
+                
+                # Try writing to a temporary file and then moving it
+                temp_path = absolute_path + ".tmp"
+                with open(temp_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                
+                # Replace the original file with the temp file
+                import shutil
+                shutil.move(temp_path, absolute_path)
+                
+                print(f"Successfully wrote file using alternative method")
+            except Exception as second_write_error:
+                print(f"Second write attempt failed: {str(second_write_error)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to write to file: {str(second_write_error)}"
+                )
         
         # Update the database record
         update_data = {
-            "content": req.content,
+            "content": content,
             "updated_at": datetime.utcnow()
         }
         
         # Add description if provided
         if req.description is not None:
             update_data["description"] = req.description
-            
-        result = await db.dockerfiles.update_one(
-            {"name": req.name, "user_email": user["email"]},
-            {"$set": update_data}
-        )
         
-        if result.modified_count == 0:
-            raise HTTPException(
-                status_code=400,
-                detail="Failed to update Dockerfile in database"
+        try:
+            print(f"Updating database record for: {req.name}")
+            result = await db.dockerfiles.update_one(
+                {"name": req.name, "user_email": user["email"]},
+                {"$set": update_data}
             )
             
-        return {
-            "message": f"Dockerfile '{req.name}' updated successfully",
-            "updated_at": datetime.utcnow()
-        }
+            print(f"Database update result - matched: {result.matched_count}, modified: {result.modified_count}")
+            
+            if result.matched_count == 0:
+                print(f"No matching records found in database update")
+                raise HTTPException(
+                    status_code=404,
+                    detail="Dockerfile record not found in database"
+                )
+                
+            return {
+                "message": f"Dockerfile '{req.name}' updated successfully",
+                "updated_at": datetime.utcnow()
+            }
+        except Exception as db_error:
+            print(f"Database error: {str(db_error)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Database error: {str(db_error)}"
+            )
         
     except HTTPException:
+        # Re-raise HTTP exceptions
         raise
     except Exception as e:
+        # Log the full exception for debugging
+        import traceback
+        print(f"Unexpected error updating Dockerfile: {str(e)}")
+        print(traceback.format_exc())
         raise HTTPException(
             status_code=500,
             detail=f"Failed to update Dockerfile: {str(e)}"
         )
 
-@router.post("/dockerfile/delete")
+@router.post("/dockerfile/delete")#Molla
 async def delete_dockerfile(
     req: DockerfileDeleteRequest, 
     user=Depends(get_current_user)
@@ -1751,7 +1861,7 @@ async def delete_dockerfile(
             detail=f"Failed to delete Dockerfile: {str(e)}"
         )
 
-@router.get("/dockerfile/{name}")
+@router.get("/dockerfile/{name}")#3
 async def get_dockerfile(
     name: str,
     user=Depends(get_current_user)
@@ -1889,7 +1999,7 @@ async def get_pull_history(user=Depends(get_current_user)):
             detail=f"Failed to fetch pull history: {str(e)}"
         )
 
-@router.post("/image/delete")
+@router.post("/image/delete")#M
 async def delete_docker_image(
     req: DockerImageDeleteRequest,
     user=Depends(get_current_user)
@@ -1978,5 +2088,4 @@ print(f"🔍 DEBUG - Docker router prefix: {router.prefix}")
 print("🔍 DEBUG - Available routes in docker router:")
 for route in router.routes:
     print(f"  - {route.path} [{', '.join(route.methods)}]")
-
 

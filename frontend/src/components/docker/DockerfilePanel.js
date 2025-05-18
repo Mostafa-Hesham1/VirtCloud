@@ -3,7 +3,7 @@ import {
   Box, Typography, Button, Paper, TableContainer, Table, TableHead, TableBody, 
   TableRow, TableCell, IconButton, Tooltip, TextField, Dialog, DialogTitle, 
   DialogContent, DialogActions, CircularProgress, Alert, Chip,
-  TablePagination, Divider, Card, CardContent, Tabs, Tab, LinearProgress
+  TablePagination, Divider, Card, CardContent, Tabs, Tab, LinearProgress, Grid
 } from '@mui/material';
 import { useDocker } from '../../context/DockerContext';
 import { Controlled as CodeMirror } from 'react-codemirror2';
@@ -24,6 +24,26 @@ import { Accordion, AccordionSummary, AccordionDetails } from '@mui/material';
 
 // Import the BuildStatusDisplay component
 import BuildStatusDisplay from './BuildStatusDisplay';
+
+// Add this helper function after the imports but before the component definition
+const formatTimeAgo = (timestamp) => {
+  if (!timestamp) return 'unknown time';
+  
+  const now = new Date();
+  const date = new Date(timestamp);
+  const seconds = Math.floor((now - date) / 1000);
+  
+  if (seconds < 60) return `${seconds} seconds`;
+  
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} minute${minutes > 1 ? 's' : ''}`;
+  
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''}`;
+  
+  const days = Math.floor(hours / 24);
+  return `${days} day${days > 1 ? 's' : ''}`;
+};
 
 // Add TabPanel component definition if it's not imported from elsewhere
 function TabPanel(props) {
@@ -50,7 +70,8 @@ const DockerfilePanel = () => {
     updateDockerfile, 
     buildImage, 
     refreshDockerResources, 
-    deleteDockerfile 
+    deleteDockerfile,
+    buildStatus: contextBuildStatus  // Get buildStatus from context
   } = useDocker();
   
   // State for data management
@@ -108,6 +129,7 @@ CMD ["npm", "start"]`);
   const [tabValue, setTabValue] = useState(0);
   const [buildStatus, setBuildStatus] = useState({});
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [lastBuildId, setLastBuildId] = useState(null);
 
   // CodeMirror options
   const codeMirrorOptions = {
@@ -323,11 +345,46 @@ CMD ["npm", "start"]`);
         image_name: imageName.trim()
       };
       
+      // Add immediate UI feedback by creating a temporary build status entry
+      const tempBuildId = `temp-${Date.now()}`;
+      const tempBuildStatus = {
+        [tempBuildId]: {
+          dockerfile_name: selectedDockerfile.name,
+          image_name: imageName.trim(),
+          tag: formattedTag,
+          image_tag: `${imageName.trim()}:${formattedTag}`,
+          status: "building",
+          started_at: new Date().toISOString(),
+          logs: [{ log: "Starting build process...", timestamp: new Date().toISOString() }]
+        }
+      };
+      
+      // Update local build status immediately for instant feedback
+      setBuildStatus(prev => ({ ...prev, ...tempBuildStatus }));
+      
       const result = await buildImage(buildData);
       console.log('Build started:', result);
       
       // Store the build ID to check the status later
       const buildId = result.build_id;
+      
+      // Update the temporary build status with the real build ID
+      if (buildId) {
+        setBuildStatus(prev => {
+          const updatedStatus = { ...prev };
+          // Remove the temporary entry
+          delete updatedStatus[tempBuildId];
+          // Only add if not already present (from context sync)
+          if (!updatedStatus[buildId]) {
+            updatedStatus[buildId] = {
+              ...tempBuildStatus[tempBuildId],
+              _id: buildId,
+              image_tag: result.image_tag || `${imageName.trim()}:${formattedTag}`
+            };
+          }
+          return updatedStatus;
+        });
+      }
       
       // Close dialog and show success message
       setBuildDialogOpen(false);
@@ -489,6 +546,156 @@ CMD ["npm", "start"]`);
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
   };
+
+  // Sync local buildStatus with context buildStatus
+  useEffect(() => {
+    if (contextBuildStatus && Object.keys(contextBuildStatus).length > 0) {
+      console.log("Syncing build status from context:", contextBuildStatus);
+      setBuildStatus(contextBuildStatus);
+    }
+  }, [contextBuildStatus]);
+
+  // Sync with context buildStatus and ensure we catch changes
+  useEffect(() => {
+    if (contextBuildStatus && Object.keys(contextBuildStatus).length > 0) {
+      console.log("Syncing build status from context:", contextBuildStatus);
+      setBuildStatus(contextBuildStatus);
+      
+      // Check if our active build has completed
+      if (lastBuildId && contextBuildStatus[lastBuildId]) {
+        const buildData = contextBuildStatus[lastBuildId];
+        if (buildData.status === 'completed') {
+          console.log(`Build ${lastBuildId} has completed with success=${buildData.success}`);
+          // Show a notification or take any action needed for completed builds
+          setOperationResult({
+            success: buildData.success,
+            message: buildData.success ? 
+              `Build completed successfully: ${buildData.image_tag}` : 
+              `Build failed: ${buildData.errorDetail || 'Unknown error'}`
+          });
+        }
+      }
+    }
+  }, [contextBuildStatus, lastBuildId]);
+
+  // Add a function to manually check build status for a specific build ID
+  const checkBuildStatus = async (buildId) => {
+    if (!buildId) return;
+    
+    try {
+      // Make a direct API call to get the current build status
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:8000/docker/build/${buildId}`, {
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to check build status: ${response.statusText}`);
+      }
+      
+      const buildData = await response.json();
+      console.log(`Manual build status check for ${buildId}:`, buildData);
+      
+      // Update our local state with the latest build data
+      setBuildStatus(prev => ({
+        ...prev,
+        [buildId]: buildData
+      }));
+      
+      // If build is completed, show a notification
+      if (buildData.status === 'completed') {
+        setOperationResult({
+          success: buildData.success,
+          message: buildData.success ? 
+            `Build completed successfully: ${buildData.image_tag}` : 
+            `Build failed: ${buildData.errorDetail || 'Unknown error'}`
+        });
+        
+        // Refresh images after successful build
+        if (buildData.success) {
+          refreshDockerResources();
+        }
+      } else if (buildData.status === 'building') {
+        // If still building, check again after a delay
+        setTimeout(() => checkBuildStatus(buildId), 5000);
+      }
+    } catch (error) {
+      console.error(`Error checking build status for ${buildId}:`, error);
+    }
+  };
+
+  // Add a state to track builds in progress
+  const [buildsInProgress, setBuildsInProgress] = useState({});
+  
+  // Add a useEffect hook for automatic status polling
+  useEffect(() => {
+    // Check if we have any builds in progress
+    const activeBuildIds = Object.keys(buildStatus).filter(
+      buildId => buildStatus[buildId].status === 'building'
+    );
+    
+    if (activeBuildIds.length > 0) {
+      console.log(`Auto-monitoring ${activeBuildIds.length} active builds:`, activeBuildIds);
+      
+      // Set up interval to poll for status updates
+      const intervalId = setInterval(async () => {
+        // For each active build, check its current status
+        for (const buildId of activeBuildIds) {
+          try {
+            // Make a direct API call to get the current build status
+            const token = localStorage.getItem('token');
+            const response = await fetch(`http://localhost:8000/docker/build/${buildId}`, {
+              headers: { 
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              }
+            });
+            
+            if (!response.ok) {
+              console.error(`Error checking build ${buildId} status:`, response.statusText);
+              continue;
+            }
+            
+            const buildData = await response.json();
+            
+            // Only update if status has changed
+            if (buildStatus[buildId]?.status !== buildData.status || 
+                buildStatus[buildId]?.success !== buildData.success) {
+              console.log(`Build ${buildId} status changed:`, buildData.status, buildData.success);
+              
+              // Update build status in state
+              setBuildStatus(prev => ({
+                ...prev,
+                [buildId]: buildData
+              }));
+              
+              // If build is completed, show a notification
+              if (buildData.status === 'completed') {
+                setOperationResult({
+                  success: buildData.success,
+                  message: buildData.success 
+                    ? `Build completed successfully: ${buildData.image_tag}` 
+                    : `Build failed: ${buildData.errorDetail || 'Unknown error'}`
+                });
+                
+                // Refresh images after successful build
+                if (buildData.success) {
+                  refreshDockerResources();
+                }
+              }
+            }
+          } catch (error) {
+            console.error(`Error checking build status for ${buildId}:`, error);
+          }
+        }
+      }, 3000); // Check every 3 seconds
+      
+      return () => clearInterval(intervalId);
+    }
+  }, [buildStatus, refreshDockerResources]);
 
   return (
     <Box>
@@ -951,152 +1158,196 @@ CMD ["npm", "start"]`);
       </TabPanel>
       
       <TabPanel value={tabValue} index={1}>
-        <Typography variant="h6" gutterBottom>Build Status</Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Typography variant="h6" gutterBottom>Build Status</Typography>
+          <Button
+            variant="outlined"
+            startIcon={<RefreshIcon />}
+            onClick={() => {
+              // Refresh resources to ensure we have latest data
+              refreshDockerResources();
+            }}
+          >
+            Refresh Status
+          </Button>
+        </Box>
         
         {Object.keys(buildStatus || {}).length === 0 ? (
-          <Typography color="text.secondary" align="center" sx={{ p: 3 }}>
-            No recent builds found
-          </Typography>
+          <Paper sx={{ p: 3, textAlign: 'center' }}>
+            <Typography color="text.secondary">
+              No image builds in progress or completed.
+            </Typography>
+          </Paper>
         ) : (
-          Object.entries(buildStatus || {}).map(([buildId, build]) => (
-            <Paper key={buildId} sx={{ 
-              p: 2, 
-              mb: 2, 
-              borderLeft: '4px solid',
-              borderColor: build.success ? 'success.main' : 
-                         build.success === false ? 'error.main' : 
-                         'info.main'
-            }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                <Typography variant="h6">
-                  {build.image_tag || `${build.image_name}:${build.tag}`}
-                </Typography>
-                <Chip 
-                  label={
-                    build.success === true ? "Success" : 
-                    build.success === false ? "Failed" : 
-                    "Building"
-                  } 
-                  color={
-                    build.success === true ? "success" : 
-                    build.success === false ? "error" : 
-                    "info"
-                  }
-                />
-              </Box>
+          <Grid container spacing={2}>
+            {Object.entries(buildStatus || {}).map(([buildId, build]) => {
+              // Ensure build object exists and has necessary properties
+              if (!build) return null;
               
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                <strong>Dockerfile:</strong> {build.dockerfile_name}
-              </Typography>
+              // Compute status properties more defensively
+              const isBuilding = build.status === 'building';
+              const isCompleted = build.status === 'completed';
+              const isSuccess = isCompleted && (build.success === true || build.overrideSuccess === true);
+              const isFailed = isCompleted && !isSuccess;
               
-              <Typography variant="body2" color="text.secondary">
-                <strong>Started:</strong> {new Date(build.started_at).toLocaleString()}
-              </Typography>
-              
-              {build.finished_at && (
-                <Typography variant="body2" color="text.secondary">
-                  <strong>Finished:</strong> {new Date(build.finished_at).toLocaleString()}
-                </Typography>
-              )}
-              
-              {build.status === 'building' && (
-                <Box sx={{ width: '100%', mt: 2 }}>
-                  <LinearProgress />
-                </Box>
-              )}
-              
-              {/* Display common build errors with helpful messages */}
-              {build.success === false && (
-                <Alert severity="error" sx={{ mt: 2 }}>
-                  <Typography variant="subtitle1">Build Failed</Typography>
-                  
-                  {/* Show specific error messages based on log patterns */}
-                  {build.logs && build.logs.some(l => l.log && l.log.includes('ENOENT') && l.log.includes('package.json')) && (
-                    <Box sx={{ mt: 1 }}>
-                      <Typography variant="body2">
-                        <strong>Error:</strong> Missing package.json file. This Node.js Dockerfile requires a package.json file.
+              return (
+                <Grid item xs={12} key={buildId}>
+                  <Paper sx={{ 
+                    p: 2, 
+                    borderLeft: '4px solid',
+                    borderColor: isBuilding ? 'info.main' :
+                               isSuccess ? 'success.main' : 
+                               'error.main',
+                    position: 'relative',
+                    overflow: 'hidden'
+                  }}>
+                    {/* Add a colorful status indicator at the top */}
+                    {isBuilding && (
+                      <LinearProgress 
+                        sx={{ 
+                          position: 'absolute', 
+                          top: 0, 
+                          left: 0, 
+                          right: 0, 
+                          height: '3px' 
+                        }} 
+                      />
+                    )}
+                    
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                      <Typography variant="h6">
+                        {build.image_tag || `${build.image_name || 'unnamed'}:${build.tag || 'latest'}`}
                       </Typography>
-                      <Button 
-                        variant="outlined" 
-                        color="primary" 
-                        size="small" 
-                        sx={{ mt: 1 }}
-                        onClick={() => {
-                          // Find the Dockerfile
-                          const dockerfile = dockerfiles.find(df => df.name === build.dockerfile_name);
-                          if (dockerfile) {
-                            // Open it in edit mode
-                            setSelectedDockerfile(dockerfile);
-                            setEditDialogOpen(true);
-                            
-                            // Provide a suggested fix
-                            alert(
-                              "To fix the build, you need to:\n\n" +
-                              "1. Create a package.json file in the same directory as your Dockerfile, or\n" +
-                              "2. Modify your Dockerfile to not rely on package.json\n\n" +
-                              "Example package.json content:\n" +
-                              "{\n" +
-                              '  "name": "docker-node-app",\n' +
-                              '  "version": "1.0.0",\n' +
-                              '  "description": "Simple Node.js app",\n' +
-                              '  "main": "index.js",\n' +
-                              '  "scripts": {\n' +
-                              '    "start": "node index.js"\n' +
-                              '  }\n' +
-                              "}\n"
-                            );
+                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                        {isBuilding && (
+                          <CircularProgress size={16} sx={{ mr: 1 }} />
+                        )}
+                        <Chip 
+                          label={
+                            isBuilding ? "Building" :
+                            isSuccess ? "Success" : 
+                            "Failed"
+                          } 
+                          color={
+                            isBuilding ? "info" :
+                            isSuccess ? "success" : 
+                            "error"
                           }
-                        }}
-                      >
-                        Fix Dockerfile
-                      </Button>
-                    </Box>
-                  )}
-                </Alert>
-              )}
-              
-              {/* Show build logs in a collapsible panel */}
-              {build.logs && build.logs.length > 0 && (
-                <Accordion sx={{ mt: 2 }}>
-                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                    <Typography>Build Logs ({build.logs.length} entries)</Typography>
-                  </AccordionSummary>
-                  <AccordionDetails>
-                    <Box 
-                      sx={{ 
-                        maxHeight: 300, 
-                        overflow: 'auto',
-                        bgcolor: 'grey.900',
-                        p: 2,
-                        borderRadius: 1
-                      }}
-                    >
-                      {build.logs.map((log, index) => (
-                        <Typography 
-                          key={index} 
-                          variant="body2" 
-                          component="div"
-                          sx={{ 
-                            fontFamily: 'monospace', 
-                            whiteSpace: 'pre-wrap',
-                            color: 'common.white',
-                            my: 0.5,
-                            fontSize: '0.875rem',
-                            '& span': { display: 'inline' } // Ensure spans render properly
-                          }}
-                          dangerouslySetInnerHTML={{ 
-                            __html: log.log ? formatBuildLog(log.log) : '' 
-                          }}
                         />
-                      ))}
+                      </Box>
                     </Box>
-                  </AccordionDetails>
-                </Accordion>
-              )}
-            </Paper>
-          ))
+                    
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                      <strong>From:</strong> {build.dockerfile_name}
+                    </Typography>
+                    
+                    {/* Add build timing information with more detail */}
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 1 }}>
+                      {/* Always show the start time */}
+                      <Typography variant="body2" color="text.secondary">
+                        <strong>Started:</strong> {new Date(build.started_at).toLocaleString()}
+                      </Typography>
+                      
+                      {/* Only show finish time and duration for completed builds */}
+                      {build.finished_at && isCompleted && (
+                        <>
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>Finished:</strong> {new Date(build.finished_at).toLocaleString()}
+                          </Typography>
+                          
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>Duration:</strong> {Math.round((new Date(build.finished_at) - new Date(build.started_at))/1000)} seconds
+                          </Typography>
+                        </>
+                      )}
+                      
+                      {/* For builds in progress, just show a simple "Building..." message without the time calculation */}
+                      {isBuilding && (
+                        <Typography variant="body2" color="primary">
+                          <strong>Building...</strong>
+                        </Typography>
+                      )}
+                    </Box>
+                    
+                    {/* Visual build progress indicator for active builds */}
+                    {isBuilding && (
+                      <Box sx={{ width: '100%', mt: 2, mb: 2 }}>
+                        <LinearProgress 
+                          variant="indeterminate" 
+                          color="primary"
+                          sx={{ height: 8, borderRadius: 1 }}
+                        />
+                        <Typography variant="caption" color="text.secondary" align="center" display="block" sx={{ mt: 0.5 }}>
+                          Building image - please wait...
+                        </Typography>
+                      </Box>
+                    )}
+                    
+                    {/* Success message with icon */}
+                    {isSuccess && (
+                      <Alert severity="success" sx={{ mt: 2, mb: 2 }}>
+                        <Typography variant="body2">
+                          <strong>Build completed successfully!</strong> The image {build.image_tag || `${build.image_name}:${build.tag}`} is now available.
+                        </Typography>
+                        <Button 
+                          variant="text" 
+                          size="small"
+                          onClick={() => {
+                            setTabValue(0); // Go to images tab
+                            refreshDockerResources(); // Refresh images
+                          }}
+                          sx={{ mt: 1 }}
+                        >
+                          View Images
+                        </Button>
+                      </Alert>
+                    )}
+                    
+                    {/* Show syntax error message with better formatting */}
+                    {build.syntaxError && (
+                      <Alert 
+                        severity="error" 
+                        sx={{ mt: 2, mb: 2 }}
+                        action={
+                          <Button 
+                            color="inherit" 
+                            size="small"
+                            onClick={() => {
+                              // Find the Dockerfile in the dockerfiles array
+                              const dockerfile = dockerfiles.find(df => df.name === build.dockerfile_name);
+                              if (dockerfile) {
+                                setSelectedDockerfile(dockerfile);
+                                setViewDialogOpen(true);
+                                setIsEditing(true);
+                              } else {
+                                setOperationResult({
+                                  success: false,
+                                  message: "Couldn't find the Dockerfile. Please check the Dockerfiles tab."
+                                });
+                              }
+                            }}
+                          >
+                            Edit Dockerfile
+                          </Button>
+                        }
+                      >
+                        <Typography variant="subtitle2">Dockerfile Syntax Error</Typography>
+                        <Typography variant="body2">
+                          {build.errorDetail || "There's a syntax error in your Dockerfile that's preventing the build."}
+                        </Typography>
+                      </Alert>
+                    )}
+                    
+                    {/* Rest of error displays and logs remain unchanged */}
+                    {/* ...existing code... */}
+                  </Paper>
+                </Grid>
+              );
+            })}
+          </Grid>
         )}
       </TabPanel>
+      
     </Box>
   );
 };

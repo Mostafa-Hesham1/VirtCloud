@@ -34,7 +34,7 @@ class RenameDiskRequest(BaseModel):
     current_name: str       # Current disk filename (with extension)
     new_name: str           # New disk name (without extension)
 
-@router.post("/create")
+@router.post("/create")#M
 def create_disk(req: CreateDiskRequest):
     """
     Creates a virtual disk image using qemu-img based on user input.
@@ -105,7 +105,7 @@ def create_disk(req: CreateDiskRequest):
         print("💥 Unexpected error:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/info")
+@router.post("/info")#M
 def disk_info(req: DiskInfoRequest):
     """Get information about a disk image"""
     # ensure qemu-img is available (or fallback)
@@ -141,7 +141,7 @@ def disk_info(req: DiskInfoRequest):
         # catch any errors
         raise HTTPException(status_code=500, detail=f"💥 {str(e)}")
 
-@router.post("/convert")
+@router.post("/convert")#K
 async def convert_disk(req: ConvertDiskRequest, user=Depends(get_current_user)):
     """Convert a disk from one format to another"""
     # Prevent converting to the same disk/name
@@ -201,7 +201,7 @@ async def convert_disk(req: ConvertDiskRequest, user=Depends(get_current_user)):
         # Handle conversion errors
         raise HTTPException(status_code=500, detail=f"💥 {str(e)}")
 
-@router.post("/resize")
+@router.post("/resize")#K
 def resize_disk(req: ResizeDiskRequest):
     """Resize a disk image"""
     # Locate qemu-img executable

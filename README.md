@@ -9,11 +9,22 @@
 [![QEMU](https://img.shields.io/badge/QEMU-FF6600?style=for-the-badge&logo=qemu&logoColor=white)](https://www.qemu.org/)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 
-## 🔍 Introduction
 
-VirtCloud is a modern cloud platform that allows users to create, manage, and interact with virtual machines through a fully responsive web interface. Built for educational purposes as a graduation project for a Cloud Computing course, VirtCloud demonstrates how virtualization technologies can be integrated with web technologies to create a comprehensive cloud management system.
+## 🎥 Project Demo
 
-The platform enables users to create, resize, convert, and launch virtual machines using a user-friendly interface, with a credit-based billing system to manage resource allocation fairly. VirtCloud leverages the power of QEMU for virtualization, making it possible to run various operating systems directly in your browser.
+<div align="center">
+  <video width="100%" controls>
+    <source src="Project-Video/FInal_Cloud_Vid.mp4" type="video/mp4">
+    Your browser does not support the video tag. You can <a href="Project-Video/FInal_Cloud_Vid.mp4">download the video</a> instead.
+  </video>
+</div>
+
+*If the video doesn't play above, you can [download the full demo video](Project-Video/FInal_Cloud_Vid.mp4).*
+
+## 📚 Documentation
+
+- [**User Manual**](Docs/userManual.pdf) - Complete guide on how to use all VirtCloud features
+- [**Project and Testing Report**](Docs/Project%20and%20Testing%20Report%20(3).pdf) - Technical documentation, architecture and test results
 
 ## ✨ Features
 
@@ -42,6 +53,13 @@ The platform enables users to create, resize, convert, and launch virtual machin
 - **Plan Restrictions** based on user subscription level
 - **Credit Deduction** in real-time as resources are used
 
+### 🐳 Docker Management
+- **Dockerfile Management**: Create, list, edit, and delete Dockerfiles
+- **Image Building**: Build images from your Dockerfiles with real-time build logs
+- **Container Management**: Create, start, stop, and delete containers
+- **Image Management**: Search, pull, and manage Docker images
+- **Status Monitoring**: Track build and pull operations
+
 ## 🧰 Tech Stack
 
 ### Frontend
@@ -55,13 +73,14 @@ The platform enables users to create, resize, convert, and launch virtual machin
 - **JWT**: JSON Web Tokens for authentication
 - **PyMongo**: MongoDB integration for Python
 - **QEMU Command Wrappers**: Python interfaces to QEMU virtualization tools
+- **Docker**: Container management
 
 ### Database
 - **MongoDB**: NoSQL database for flexible, document-based storage
 
 ### Virtualization
 - **QEMU/KVM**: Open-source machine emulator and virtualizer
-- **Docker**: Container integration (planned for Phase 2)
+- **Docker**: Container integration
 
 ## 💳 Plans & Credit System
 
@@ -97,6 +116,7 @@ VirtCloud operates on a credit-based billing system where different subscription
 - Node.js 14+
 - MongoDB instance (local or Atlas)
 - QEMU installed and configured
+- Docker installed and running
 
 ### Backend Setup
 
@@ -130,7 +150,17 @@ VirtCloud operates on a credit-based billing system where different subscription
    - On Windows: Install from [QEMU for Windows](https://www.qemu.org/download/#windows)
    - On Linux: `sudo apt install qemu-kvm qemu-utils`
 
-6. Start the backend server:
+6. Ensure Docker daemon is running:
+   ```bash
+   docker info
+   ```
+
+7. Verify the Python Docker SDK is installed:
+   ```bash
+   pip install docker
+   ```
+
+8. Start the backend server:
    ```bash
    uvicorn main:app --reload
    ```
@@ -147,12 +177,17 @@ VirtCloud operates on a credit-based billing system where different subscription
    npm install
    ```
 
-3. Start the development server:
+3. Create a `.env` file with the following variables:
+   ```
+   REACT_APP_API_URL=http://localhost:8000
+   ```
+
+4. Start the development server:
    ```bash
    npm start
    ```
 
-4. Access the application at http://localhost:3000
+5. Access the application at http://localhost:3000
 
 ## 🔐 Authentication Guide
 
@@ -227,10 +262,84 @@ POST /auth/login
 }
 ```
 
+## 🐳 Docker Management Features
 
+VirtCloud provides comprehensive Docker management capabilities, allowing you to work with containers, images, and Dockerfiles through an intuitive UI.
+
+### 🔍 Prerequisites for Docker Features
+
+- **Docker Engine**: Must be installed and running on the host machine
+- **Docker API**: The Docker daemon must be accessible to the backend service
+- **Docker Python SDK**: Included in the requirements.txt
+
+### 🔧 Docker Backend Configuration
+
+The Docker functionality is implemented in `backend/routers/docker.py` and provides the following API endpoints:
+
+- **Dockerfile Management**: Create, list, edit, and delete Dockerfiles
+- **Image Building**: Build images from your Dockerfiles with real-time build logs
+- **Container Management**: Create, start, stop, and delete containers
+- **Image Management**: Search, pull, and manage Docker images
+- **Status Monitoring**: Track build and pull operations
+
+To ensure Docker features work correctly:
+
+1. Make sure Docker daemon is running:
+   ```bash
+   docker info
+   ```
+
+2. Verify the Python Docker SDK is installed:
+   ```bash
+   pip install docker
+   ```
+
+3. If you're running in a restricted environment, you might need to add your user to the Docker group:
+   ```bash
+   sudo usermod -aG docker $USER
+   ```
+
+### 💻 Docker Frontend Components
+
+The Docker UI is composed of several components:
+
+- **DockerfilePanel**: Create and manage Dockerfiles, build images
+- **ImagePanel**: View, search, pull, and manage Docker images
+- **ContainerPanel**: Control Docker containers from a central interface
+
+### 🚀 Using Docker Features
+
+1. **Creating Dockerfiles**:
+   - Navigate to the Dockerfiles tab
+   - Click "Create Dockerfile"
+   - Enter name, content, and optional description
+   - Click Create
+
+2. **Building Images**:
+   - In the Dockerfiles tab, find your Dockerfile
+   - Click the Build icon
+   - Enter image name and tag
+   - Click "Build Image"
+   - Monitor build progress in the Build Status tab
+
+3. **Managing Containers**:
+   - In the Images tab, click "Run Container" on any image
+   - Configure container settings (name, ports, etc.)
+   - Click "Run Container"
+   - Use the Containers tab to start, stop, or delete containers
+
+4. **Pulling Images**:
+   - In the Images tab, click "Pull Image"
+   - Enter the image name (e.g., nginx:latest)
+   - Click "Pull Image"
+   - Monitor pull progress in the Pull Status tab
+
+5. **Searching Images**:
+   - Use the search box to find images locally or on Docker Hub
+   - Toggle between local and Docker Hub search
+   - Click the Pull icon to download found images
 
 ## 👤 Author & Acknowledgments
-
 
 Developed as part of the Cloud Computing course at MSA University.
 

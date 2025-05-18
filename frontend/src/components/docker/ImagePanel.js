@@ -963,7 +963,7 @@ const ImagePanel = () => {
                     </TableCell>
                     <TableCell>
                       {image.tags?.length > 0 
-                        ? image.tags[0].split(':').slice(1).join(':') || 'latest'
+                        ? (image.tags[0].split(':').slice(1).join(':') || 'latest')
                         : <em>none</em>}
                     </TableCell>
                     <TableCell>{image.short_id || image.id.substring(0, 12)}</TableCell>
@@ -1141,7 +1141,7 @@ const ImagePanel = () => {
                 <Paper sx={{ p: 2 }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                     <Typography variant="h6">
-                      {buildStatus[buildId].image_tag}
+                      {buildStatus[buildId].image_tag || `${buildStatus[buildId].image_name || 'unnamed'}:${buildStatus[buildId].tag || 'latest'}`}
                       {buildStatus[buildId].status === 'building' && (
                         <Chip 
                           size="small" 
@@ -1150,7 +1150,8 @@ const ImagePanel = () => {
                           sx={{ ml: 1 }}
                         />
                       )}
-                      {buildStatus[buildId].status === 'completed' && buildStatus[buildId].success && (
+                      {buildStatus[buildId].status === 'completed' && 
+                        (buildStatus[buildId].success || buildStatus[buildId].overrideSuccess) && (
                         <Chip 
                           size="small" 
                           label="Success" 
@@ -1158,10 +1159,12 @@ const ImagePanel = () => {
                           sx={{ ml: 1 }}
                         />
                       )}
-                      {buildStatus[buildId].status === 'completed' && !buildStatus[buildId].success && (
+                      {buildStatus[buildId].status === 'completed' && 
+                        !buildStatus[buildId].success && 
+                        !buildStatus[buildId].overrideSuccess && (
                         <Chip 
                           size="small" 
-                          label="Failed" 
+                          label={buildStatus[buildId].syntaxError ? "Syntax Error" : "Failed"} 
                           color="error" 
                           sx={{ ml: 1 }}
                         />
@@ -1176,6 +1179,19 @@ const ImagePanel = () => {
                     <strong>From:</strong> {buildStatus[buildId].dockerfile_name}
                   </Typography>
                   
+                  {buildStatus[buildId].expected_full_tag && 
+                    buildStatus[buildId].expected_full_tag !== buildStatus[buildId].image_tag && (
+                    <Typography variant="body2" color="primary">
+                      <strong>Expected Tag:</strong> {buildStatus[buildId].expected_full_tag}
+                    </Typography>
+                  )}
+                  
+                  {buildStatus[buildId].actualImageTag && (
+                    <Typography variant="body2" color="success.main">
+                      <strong>Actual Tag:</strong> {buildStatus[buildId].actualImageTag}
+                    </Typography>
+                  )}
+                  
                   <Typography variant="body2">
                     <strong>Started:</strong> {new Date(buildStatus[buildId].started_at).toLocaleString()}
                   </Typography>
@@ -1188,6 +1204,35 @@ const ImagePanel = () => {
                   
                   {buildStatus[buildId].status === 'building' && (
                     <CircularProgress size={24} sx={{ mt: 1 }} />
+                  )}
+                  
+                  {/* Show syntax error message with better formatting */}
+                  {buildStatus[buildId].syntaxError && (
+                    <Alert 
+                      severity="error" 
+                      sx={{ mt: 2, mb: 2 }}
+                      action={
+                        <Button 
+                          color="inherit" 
+                          size="small"
+                          onClick={() => {
+                            // Navigate to the Dockerfile editor
+                            // For now just show message - you can implement actual navigation
+                            setOperationResult({
+                              success: false,
+                              message: "Please fix your Dockerfile syntax and try again."
+                            });
+                          }}
+                        >
+                          Edit Dockerfile
+                        </Button>
+                      }
+                    >
+                      <Typography variant="subtitle2">Dockerfile Syntax Error</Typography>
+                      <Typography variant="body2">
+                        {buildStatus[buildId].errorDetail || "There's a syntax error in your Dockerfile that's preventing the build."}
+                      </Typography>
+                    </Alert>
                   )}
                   
                   {/* Show last few log entries */}
@@ -1212,7 +1257,11 @@ const ImagePanel = () => {
                             sx={{ 
                               fontFamily: 'monospace', 
                               whiteSpace: 'pre-wrap',
-                              color: log.log.includes('ERROR') ? 'error.light' : 'common.white'
+                              color: log.log && (log.log.includes('ERROR') || log.log.includes('error') || log.log.includes('failed')) 
+                                ? 'error.light' 
+                                : log.log && (log.log.includes('Successfully built') || log.log.includes('Successfully tagged')) 
+                                ? 'success.light' 
+                                : 'common.white'
                             }}
                           >
                             {log.log}
@@ -1220,6 +1269,24 @@ const ImagePanel = () => {
                         ))}
                       </Paper>
                     </Box>
+                  )}
+                  
+                  {/* Show override success message */}
+                  {buildStatus[buildId].overrideSuccess && (
+                    <Alert severity="info" sx={{ mt: 2 }}>
+                      Build reported as failed, but the image was successfully created.
+                    </Alert>
+                  )}
+                  
+                  {/* Show error details if build failed (and is not a syntax error) */}
+                  {buildStatus[buildId].status === 'completed' && 
+                    !buildStatus[buildId].success && 
+                    !buildStatus[buildId].overrideSuccess &&
+                    !buildStatus[buildId].syntaxError &&
+                    buildStatus[buildId].errorDetail && (
+                    <Alert severity="error" sx={{ mt: 2 }}>
+                      {buildStatus[buildId].errorDetail}
+                    </Alert>
                   )}
                 </Paper>
               </Grid>

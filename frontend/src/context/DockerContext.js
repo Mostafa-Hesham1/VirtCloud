@@ -204,11 +204,23 @@ export const DockerProvider = ({ children }) => {
       console.log('=== BUILD IMAGE REQUEST ===');
       console.log('Original build data:', JSON.stringify(buildData, null, 2));
       
-      // Ensure image name and tags are lowercase
+      // Ensure image name and tags are lowercase and valid
+      const imageName = (buildData.image_name || '').toLowerCase().trim();
+      const tag = (buildData.tag || 'latest').toLowerCase().trim();
+      
+      // Basic validation
+      if (!imageName) {
+        throw new Error('Image name cannot be empty');
+      }
+      
+      if (!isValidImageName(imageName)) {
+        throw new Error('Invalid image name. Use only lowercase letters, numbers, and separators like - _ or .');
+      }
+      
       const fixedBuildData = {
         ...buildData,
-        image_name: buildData.image_name.toLowerCase(),
-        tag: buildData.tag.toLowerCase()
+        image_name: imageName,
+        tag: tag
       };
       
       console.log('Fixed build data:', JSON.stringify(fixedBuildData, null, 2));
@@ -243,7 +255,7 @@ export const DockerProvider = ({ children }) => {
       return response.data;
     } catch (error) {
       console.error('Error building image:', error);
-      setDockerError(error.response?.data?.detail || 'Failed to build image');
+      setDockerError(error.message || error.response?.data?.detail || 'Failed to build image');
       throw error;
     } finally {
       setLoading(false);
@@ -316,67 +328,120 @@ const pollBuildStatus = async (buildId) => {
     const buildData = status.data;
     console.log(`Build ${buildId} status update:`, buildData);
     
+    // Store the expected image tag from the build data
+    const expectedImageTag = buildData.image_tag;
+    console.log(`Expected image tag from build: ${expectedImageTag}`);
+    
     // Update the build status in our state
     setBuildStatus(prev => ({
       ...prev,
       [buildId]: buildData
     }));
     
-    // If build is completed or failed, stop polling
-    if (buildData.status === 'completed' || buildData.status === 'failed') {
+    // If build is completed (regardless of success flag)
+    if (buildData.status === 'completed') {
       console.log(`Build ${buildId} finished with status=${buildData.status}, success=${buildData.success}`);
       
-      // Check for build logs
+      // Look for syntax errors in the logs
+      let syntaxErrorFound = false;
+      let syntaxErrorMessage = '';
+      
+      // Define these variables that were missing
+      let imageFound = false;
+      let finalSuccess = buildData.success;
+      
       if (buildData.logs && buildData.logs.length > 0) {
-        console.log('Build logs:', buildData.logs);
-        
-        // Check for build errors in logs
-        const errorLogs = buildData.logs.filter(log => 
+        // Check for Dockerfile syntax errors
+        const syntaxErrors = buildData.logs.filter(log => 
           log.log && (
-            log.log.includes('ERROR') || 
-            log.log.includes('failed') || 
-            log.log.includes('not found')
+            log.log.includes('unexpected end of statement') ||
+            log.log.includes('syntax error') || 
+            log.log.includes('failed to process')
           )
         );
         
-        if (errorLogs.length > 0) {
-          console.log('Build errors detected:', errorLogs);
-          
-          // Process specific error types for better user feedback
-          const errorMessages = errorLogs.map(log => log.log).join('; ');
-          let userFriendlyError = errorMessages;
-          
-          // Check for common errors and provide better messages
-          if (errorMessages.includes('not found after build')) {
-            userFriendlyError = 'Build failed: The image could not be created. ' +
-              'This often happens when the Dockerfile has syntax errors or references ' +
-              'files that don\'t exist in the build context.';
-          }
-          
-          // Update build status with error details
+        if (syntaxErrors.length > 0) {
+          console.log('Dockerfile syntax errors detected:', syntaxErrors);
+          syntaxErrorFound = true;
+          syntaxErrorMessage = 'Dockerfile syntax error: ' + 
+            syntaxErrors.map(log => log.log).join('\n');
+            
+          // Update build status with syntax error details
           setBuildStatus(prev => ({
             ...prev,
             [buildId]: {
               ...buildData,
-              errorDetail: userFriendlyError,
-              rawError: errorMessages
+              syntaxError: true,
+              errorDetail: syntaxErrorMessage,
+              rawError: syntaxErrors.map(log => log.log).join('\n')
             }
           }));
           
-          // Set general error message
           setErrors(prev => ({
             ...prev,
-            builds: userFriendlyError
+            builds: syntaxErrorMessage
           }));
         }
+        
+        // Continue with normal error detection...
+        // ...existing error detection code...
       }
       
-      // Try to get additional logs (will handle 404 gracefully)
-      await getBuildLogs(buildId);
+      // If there's a syntax error, don't bother checking for the image
+      if (syntaxErrorFound) {
+        console.error('Build failed due to Dockerfile syntax error:', syntaxErrorMessage);
+        return; // Stop polling
+      }
       
-      // Only refresh images if build succeeded
-      if (buildData.success) {
-        console.log('Build successful! Refreshing images list...');
+      // Continue with existing code for checking if image exists...
+      // Sometimes the image is actually built but the status reporting fails
+      console.log('Checking images after build regardless of success flag...');
+      
+      try {
+        console.log(`Refreshing images to see if ${expectedImageTag} was created...`);
+        const imageResponse = await fetchImages();
+        
+        if (imageResponse && imageResponse.length > 0) {
+          // Check if our image exists in the updated image list
+          const foundImage = imageResponse.find(img => 
+            img.tags && img.tags.some(tag => tag.includes(expectedImageTag))
+          );
+          
+          if (foundImage) {
+            console.log(`Found the built image in the refreshed list:`, foundImage);
+            imageFound = true;
+            finalSuccess = true; // Image exists, so build was successful
+            
+            // Update build status to reflect actual success
+            if (!buildData.success) {
+              console.log('Overriding reported build failure since image exists');
+              setBuildStatus(prev => ({
+                ...prev,
+                [buildId]: {
+                  ...prev[buildId],
+                  success: true,
+                  overrideSuccess: true,
+                  actualImageTag: foundImage.tags[0]
+                }
+              }));
+              
+              // Clear any error since the image was actually built
+              setErrors(prev => ({
+                ...prev,
+                builds: null
+              }));
+            }
+          } else {
+            console.log(`Built image "${expectedImageTag}" not found in image list:`, imageResponse.map(img => img.tags));
+          }
+        }
+      } catch (imageCheckError) {
+        console.error('Error checking for built image:', imageCheckError);
+      }
+      
+      // Refresh images again if build succeeded or image was found
+      if (finalSuccess || imageFound) {
+        console.log('Build successful or image found! Refreshing images list once more...');
         await fetchImages();
       } else {
         console.error('Build failed:', buildData.errorDetail || 'Unknown error');
@@ -389,6 +454,14 @@ const pollBuildStatus = async (buildId) => {
     setTimeout(() => pollBuildStatus(buildId), 2000);
   } catch (error) {
     console.error(`Error polling build status for ${buildId}:`, error);
+    
+    // Even on error, try refreshing images as the build might have succeeded
+    try {
+      console.log('Refreshing images despite polling error...');
+      await fetchImages();
+    } catch (refreshError) {
+      console.error('Error refreshing images after build poll error:', refreshError);
+    }
   }
 };
 
@@ -990,6 +1063,13 @@ const pollBuildStatus = async (buildId) => {
     // IMPORTANT: Remove fetchImages as a dependency if it's not stable
     // And DON'T include fetchDockerResources here
   ]);
+
+  // Add the helper function to check if a string is a valid Docker image name
+  const isValidImageName = (name) => {
+    if (!name) return false;
+    // Docker image names must only contain lowercase letters, numbers, and separators (period, underscore, or dash)
+    return /^[a-z0-9]+(([._-][a-z0-9]+)+)?$/.test(name.toLowerCase());
+  };
 
   // Context value
   const value = {

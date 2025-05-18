@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { 
   Box, Typography, Button, Paper, TableContainer, Table, 
   TableHead, TableBody, TableRow, TableCell, IconButton, 
@@ -7,6 +7,7 @@ import {
   Accordion, AccordionSummary, AccordionDetails, Divider
 } from '@mui/material';
 import { useDocker } from '../../context/DockerContext';
+import axios from 'axios'; // Add this import for HTTP requests
 
 // Icons
 import StopIcon from '@mui/icons-material/Stop';
@@ -48,6 +49,15 @@ const ContainerPanel = () => {
   // Add the missing state variable for operation results
   const [operationResult, setOperationResult] = useState(null);
   
+  // Add this near the top of the component if it doesn't exist
+  const [actionLoadingState, setActionLoadingState] = useState({});
+
+  // Add this if you need a refresh containers function
+  const refreshContainers = useCallback(() => {
+    console.log('Manually refreshing containers');
+    refreshDockerResources();
+  }, [refreshDockerResources]);
+  
   // Handle stop dialog open
   const handleStopDialogOpen = (container) => {
     setSelectedContainer(container);
@@ -61,23 +71,120 @@ const ContainerPanel = () => {
   };
   
   // Handle stop container
-  const handleStopContainer = async () => {
+  const handleStopContainer = async (containerId, containerName) => {
+    console.log(`Stopping container: ${containerName} (${containerId})`);
+    
+    // Set loading state for this specific container
+    setActionLoadingState(prev => ({
+      ...prev,
+      [containerId]: { action: 'stop', loading: true }
+    }));
+    
+    try {
+      // Try the direct API call to stop container
+      const stopEndpoint = `http://localhost:8000/docker/container/stop`;
+      console.log(`Calling stop endpoint: ${stopEndpoint}`);
+      
+      const response = await axios.post(
+        stopEndpoint,
+        { 
+          container_id: containerId, 
+          timeout: 10 
+        },
+        { 
+          headers: { 
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          } 
+        }
+      );
+      
+      console.log(`Container stop response:`, response.data);
+      
+      // Show success message
+      setOperationResult({
+        success: true,
+        message: `Container ${containerName || containerId} stopped successfully`
+      });
+      
+      // Refresh container list after a short delay
+      setTimeout(() => refreshContainers(), 1000);
+    } catch (error) {
+      console.error(`Failed to stop container: ${containerId}`, error);
+      
+      // Log detailed error for debugging
+      if (error.response) {
+        console.error('Error response:', error.response.status, error.response.data);
+      }
+      
+      // If the first approach failed, try the alternative endpoint with the container ID directly in URL
+      try {
+        console.log(`First attempt failed, trying alternative endpoint with container ID`);
+        const altEndpoint = `http://localhost:8000/docker/container/${containerId}/stop`;
+        console.log(`Calling alternative endpoint: ${altEndpoint}`);
+        
+        const altResponse = await axios.post(
+          altEndpoint,
+          {},
+          { 
+            headers: { 
+              'Authorization': `Bearer ${localStorage.getItem('token')}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+        
+        console.log(`Alternative container stop response:`, altResponse.data);
+        
+        // Show success message
+        setOperationResult({
+          success: true,
+          message: `Container ${containerName || containerId} stopped successfully`
+        });
+        
+        // Refresh container list after a short delay
+        setTimeout(() => refreshContainers(), 1000);
+      } catch (altError) {
+        console.error(`Both stop attempts failed:`, altError);
+        
+        // Show error message
+        setOperationResult({
+          success: false,
+          message: `Failed to stop container: ${error.response?.data?.detail || error.message}`
+        });
+      }
+    } finally {
+      // Clear loading state
+      setActionLoadingState(prev => ({
+        ...prev,
+        [containerId]: { action: 'none', loading: false }
+      }));
+    }
+  };
+
+  // The existing handleStopContainer function can be removed (the one that takes the whole container)
+  
+  // Keep the dialog handlers like handleStopDialogOpen and handleStopDialogClose
+  
+  // Update the dialog's submit button to call the new handleStopContainer
+  const handleStopFromDialog = () => {
     if (!selectedContainer) return;
     
     setIsStopping(true);
     setStopError(null);
     
-    try {
-      await stopContainer(selectedContainer.id);
-      setStopDialogOpen(false);
-      refreshDockerResources();
-    } catch (error) {
-      setStopError(error.message);
-    } finally {
-      setIsStopping(false);
-    }
+    handleStopContainer(selectedContainer.id, selectedContainer.name)
+      .then(() => {
+        setStopDialogOpen(false);
+      })
+      .catch(error => {
+        setStopError(error.message || "Failed to stop container");
+      })
+      .finally(() => {
+        setIsStopping(false);
+      });
   };
-  
+
   // Handle start container dialog open
   const handleStartDialogOpen = (container) => {
     setSelectedContainer(container);
@@ -90,29 +197,114 @@ const ContainerPanel = () => {
     setStartDialogOpen(false);
   };
   
-  // Handle start container
-  const handleStartContainer = async () => {
+  // Update the handleStartContainer function with better error handling and logging
+  const handleStartContainer = async (containerId, containerName) => {
+    console.log(`Starting container: ${containerName} (${containerId})`);
+    
+    // Set loading state for this specific container
+    setActionLoadingState(prev => ({
+      ...prev,
+      [containerId]: { action: 'start', loading: true }
+    }));
+    
+    try {
+      // Try the container start endpoint with the container ID
+      const startEndpoint = `http://localhost:8000/docker/container/id/${containerId}/start`;
+      console.log(`Calling start endpoint: ${startEndpoint}`);
+      
+      const response = await axios.post(
+        startEndpoint,
+        {}, // Empty body
+        { 
+          headers: { 
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          } 
+        }
+      );
+      
+      console.log(`Container start response:`, response.data);
+      
+      // Show success message
+      setOperationResult({
+        success: true,
+        message: `Container ${containerName || containerId} started successfully`
+      });
+      
+      // Refresh container list after a short delay
+      setTimeout(() => refreshContainers(), 1000);
+    } catch (error) {
+      console.error(`Failed to start container: ${containerId}`, error);
+      
+      // Log detailed error for debugging
+      if (error.response) {
+        console.error('Error response:', error.response.status, error.response.data);
+      }
+      
+      // If the first approach failed, try the alternative endpoint with the container name
+      try {
+        console.log(`First attempt failed, trying alternative endpoint with container name`);
+        const altEndpoint = `http://localhost:8000/docker/container/${containerName || containerId}/start`;
+        console.log(`Calling alternative endpoint: ${altEndpoint}`);
+        
+        const altResponse = await axios.post(
+          altEndpoint,
+          {},
+          { 
+            headers: { 
+              'Authorization': `Bearer ${localStorage.getItem('token')}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+        
+        console.log(`Alternative container start response:`, altResponse.data);
+        
+        // Show success message
+        setOperationResult({
+          success: true,
+          message: `Container ${containerName || containerId} started successfully`
+        });
+        
+        // Refresh container list after a short delay
+        setTimeout(() => refreshContainers(), 1000);
+      } catch (altError) {
+        console.error(`Both start attempts failed:`, altError);
+        
+        // Show error message
+        setOperationResult({
+          success: false,
+          message: `Failed to start container: ${error.response?.data?.detail || error.message}`
+        });
+      }
+    } finally {
+      // Clear loading state
+      setActionLoadingState(prev => ({
+        ...prev,
+        [containerId]: { action: 'none', loading: false }
+      }));
+    }
+  };
+
+  // Create a helper function to handle starting a container from the dialog
+  const handleStartFromDialog = () => {
     if (!selectedContainer) return;
     
     setIsStarting(true);
     setStartError(null);
     
-    try {
-      // Reuse the same image and configuration
-      await createContainer({
-        image: selectedContainer.image,
-        container_name: selectedContainer.name,
-        detach: true
+    handleStartContainer(selectedContainer.id, selectedContainer.name)
+      .then(() => {
+        setStartDialogOpen(false);
+      })
+      .catch(error => {
+        setStartError(error.message || "Failed to start container");
+      })
+      .finally(() => {
+        setIsStarting(false);
       });
-      setStartDialogOpen(false);
-      refreshDockerResources();
-    } catch (error) {
-      setStartError(error.message);
-    } finally {
-      setIsStarting(false);
-    }
   };
-  
+
   // Handle delete dialog open
   const handleDeleteDialogOpen = (container) => {
     setSelectedContainer(container);
@@ -125,32 +317,62 @@ const ContainerPanel = () => {
     setDeleteDialogOpen(false);
   };
   
-  // Handle delete container
-  const handleDeleteContainer = async () => {
+  // Fix the delete container handler to work with ID and name directly
+  const handleDeleteContainer = async (containerId, containerName) => {
+    console.log(`Deleting container: ${containerName} (${containerId})`);
+    
+    // Set loading state
+    setActionLoadingState(prev => ({
+      ...prev,
+      [containerId]: { action: 'delete', loading: true }
+    }));
+    
+    try {
+      // Call the deleteContainer function from context
+      await deleteContainer(containerId, true);
+      
+      // Show success notification
+      setOperationResult({
+        success: true,
+        message: `Container ${containerName || containerId} deleted successfully!`
+      });
+      
+      // Refresh the container list
+      refreshDockerResources();
+    } catch (error) {
+      console.error('Error deleting container:', error);
+      
+      setOperationResult({
+        success: false,
+        message: `Failed to delete container: ${error.response?.data?.detail || error.message}`
+      });
+    } finally {
+      setActionLoadingState(prev => ({
+        ...prev,
+        [containerId]: { action: 'none', loading: false }
+      }));
+    }
+  };
+
+  // Update the Delete Container dialog handler to match the same pattern
+  const handleDeleteFromDialog = () => {
     if (!selectedContainer) return;
     
     setIsDeleting(true);
     setDeleteError(null);
     
-    try {
-      // Call the deleteContainer function from context
-      await deleteContainer(selectedContainer.id, true);
-      setDeleteDialogOpen(false);
-      refreshDockerResources();
-      
-      // Show success notification if needed
-      setOperationResult({
-        success: true,
-        message: `Container ${selectedContainer.name || selectedContainer.id} deleted successfully!`
+    handleDeleteContainer(selectedContainer.id, selectedContainer.name)
+      .then(() => {
+        setDeleteDialogOpen(false);
+      })
+      .catch(error => {
+        setDeleteError(error.message || "Failed to delete container");
+      })
+      .finally(() => {
+        setIsDeleting(false);
       });
-    } catch (error) {
-      console.error('Error deleting container:', error);
-      setDeleteError(error.response?.data?.detail || 'Failed to delete container');
-    } finally {
-      setIsDeleting(false);
-    }
   };
-  
+
   // Handle details dialog open
   const handleDetailsDialogOpen = (container) => {
     setSelectedDetails(container);
@@ -402,7 +624,7 @@ const ContainerPanel = () => {
                     {formatPorts(container.ports)}
                   </TableCell>
                   <TableCell align="center">
-                    <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1 }}>
                       <Tooltip title="Container Details">
                         <IconButton 
                           size="small" 
@@ -414,27 +636,32 @@ const ContainerPanel = () => {
                       </Tooltip>
                       
                       {/* Show Stop button for running containers */}
-                      {container.running && (
+                      {container.running ? (
                         <Tooltip title="Stop Container">
-                          <IconButton 
-                            size="small" 
-                            color="error" 
-                            onClick={() => handleStopDialogOpen(container)}
+                          <IconButton
+                            color="error"
+                            onClick={() => handleStopContainer(container.id, container.name)}
+                            disabled={actionLoadingState[container.id]?.loading}
                           >
-                            <StopIcon fontSize="small" />
+                            {actionLoadingState[container.id]?.action === 'stop' ? (
+                              <CircularProgress size={24} color="error" />
+                            ) : (
+                              <StopIcon />
+                            )}
                           </IconButton>
                         </Tooltip>
-                      )}
-                      
-                      {/* Show Start button for exited containers */}
-                      {container.status === "exited" && (
+                      ) : (
                         <Tooltip title="Start Container">
-                          <IconButton 
-                            size="small" 
-                            color="success" 
-                            onClick={() => handleStartDialogOpen(container)}
+                          <IconButton
+                            color="success"
+                            onClick={() => handleStartContainer(container.id, container.name)}
+                            disabled={actionLoadingState[container.id]?.loading}
                           >
-                            <PlayArrowIcon fontSize="small" />
+                            {actionLoadingState[container.id]?.action === 'start' ? (
+                              <CircularProgress size={24} color="success" />
+                            ) : (
+                              <PlayArrowIcon />
+                            )}
                           </IconButton>
                         </Tooltip>
                       )}
@@ -445,9 +672,14 @@ const ContainerPanel = () => {
                           <IconButton 
                             size="small" 
                             color="error" 
-                            onClick={() => handleDeleteDialogOpen(container)}
+                            onClick={() => handleDeleteDialogOpen(container)} // Opens delete confirmation dialog
+                            disabled={actionLoadingState[container.id]?.loading}
                           >
-                            <DeleteIcon fontSize="small" />
+                            {actionLoadingState[container.id]?.action === 'delete' ? (
+                              <CircularProgress size={16} color="error" />
+                            ) : (
+                              <DeleteIcon fontSize="small" />
+                            )}
                           </IconButton>
                         </Tooltip>
                       )}
@@ -487,7 +719,7 @@ const ContainerPanel = () => {
         <DialogActions>
           <Button onClick={handleStopDialogClose}>Cancel</Button>
           <Button 
-            onClick={handleStopContainer} 
+            onClick={handleStopFromDialog} 
             variant="contained" 
             color="error"
             disabled={isStopping}
@@ -524,7 +756,7 @@ const ContainerPanel = () => {
         <DialogActions>
           <Button onClick={handleStartDialogClose}>Cancel</Button>
           <Button 
-            onClick={handleStartContainer} 
+            onClick={handleStartFromDialog} 
             variant="contained" 
             color="success"
             disabled={isStarting}
@@ -552,6 +784,22 @@ const ContainerPanel = () => {
             The container image will still be available for creating new containers.
           </Typography>
           
+          {/* Add container details to make confirmation more specific */}
+          {selectedContainer && (
+            <Box sx={{ mt: 2, p: 2, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="subtitle2">Container Details:</Typography>
+              <Typography variant="body2">
+                <strong>ID:</strong> {selectedContainer.short_id || selectedContainer.id?.substring(0, 12)}
+              </Typography>
+              <Typography variant="body2">
+                <strong>Image:</strong> {typeof selectedContainer.image === 'string' ? selectedContainer.image : selectedContainer.image?.id?.substring(0, 12)}
+              </Typography>
+              <Typography variant="body2">
+                <strong>Status:</strong> {selectedContainer.status}
+              </Typography>
+            </Box>
+          )}
+          
           {deleteError && (
             <Alert severity="error">
               {deleteError}
@@ -561,7 +809,7 @@ const ContainerPanel = () => {
         <DialogActions>
           <Button onClick={handleDeleteDialogClose}>Cancel</Button>
           <Button 
-            onClick={handleDeleteContainer} 
+            onClick={handleDeleteFromDialog} 
             variant="contained" 
             color="error"
             disabled={isDeleting}
@@ -689,6 +937,17 @@ const ContainerPanel = () => {
           <Button onClick={handleDetailsDialogClose}>Close</Button>
         </DialogActions>
       </Dialog>
+
+      {/* Add this to display operation results if not already present */}
+      {operationResult && (
+        <Alert 
+          severity={operationResult.success ? "success" : "error"}
+          sx={{ mb: 2 }}
+          onClose={() => setOperationResult(null)}
+        >
+          {operationResult.message}
+        </Alert>
+      )}
     </Box>
   );
 };
