@@ -13,13 +13,13 @@
 ## 🎥 Project Demo
 
 <div align="center">
-  <video width="100%" controls>
-    <source src="Project-Video/FInal_Cloud_Vid.mp4" type="video/mp4">
-    Your browser does not support the video tag. You can <a href="Project-Video/FInal_Cloud_Vid.mp4">download the video</a> instead.
-  </video>
+  <a href="https://drive.google.com/file/d/1U3VKlcbFPSCOfAGBvRMJlZOeMdLLQsgy/view?usp=sharing" target="_blank">
+    <img src="https://img.shields.io/badge/Watch%20Demo%20Video-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch Demo Video" width="220"/>
+    <br/>
+    <img src="https://drive.google.com/thumbnail?id=1U3VKlcbFPSCOfAGBvRMJlZOeMdLLQsgy" alt="Demo Video Thumbnail" width="80%" style="border-radius:10px; margin-top:10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);"/>
+  </a>
+  <p><i>Click the thumbnail to watch the full demo video</i></p>
 </div>
-
-*If the video doesn't play above, you can [download the full demo video](Project-Video/FInal_Cloud_Vid.mp4).*
 
 ## 📚 Documentation
 
