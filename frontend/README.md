@@ -70,7 +70,7 @@ frontend/
 
 1. Clone the repository
    ```bash
-   git clone https://github.com/yourusername/virtcloud-frontend.git
+   git clone https://github.com/Mostafa-Hesham1/virtcloud-frontend.git   
    cd virtcloud-frontend
    ```
 
@@ -154,14 +154,6 @@ The frontend communicates with the backend via RESTful APIs:
 - JWT tokens are included in request headers for authentication
 - Real-time updates for long-running operations
 
-## 🧪 Testing
-
-Run tests with `npm test`
-
-The project uses:
-- Jest as the test runner
-- React Testing Library for component testing
-- Mock Service Worker for API mocking
 
 ## 🔒 Environment Variables
 
@@ -172,17 +164,7 @@ The following environment variables can be configured:
 | REACT_APP_API_URL | Backend API URL | http://localhost:8000 |
 | REACT_APP_AUTH_STORAGE_KEY | LocalStorage key for auth token | virt_cloud_token |
 
-## 📱 Browser Support
 
-VirtCloud frontend supports all modern browsers:
-- Chrome (latest 2 versions)
-- Firefox (latest 2 versions)
-- Safari (latest 2 versions)
-- Edge (latest 2 versions)
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## 📄 License
 
